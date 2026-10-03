@@ -1,5 +1,26 @@
 # Activer la connexion Google
 
+## Site public : task-pilot.net
+
+Le code de connexion Google est déjà implémenté côté serveur. Créer un projet Google Cloud dédié à TaskPilot, puis configurer Google Auth Platform avec le nom TaskPilot, une adresse de support et l'audience externe.
+
+Créer un client OAuth de type **Application Web**, avec :
+
+- Origine JavaScript autorisée : `https://task-pilot.net`
+- URI de redirection autorisée : `https://task-pilot.net/api/account/google/callback`
+- Permissions demandées par TaskPilot : `openid email profile` uniquement.
+
+Enregistrer l'identifiant et le secret dans **Cloudflare → Workers & Pages → taskpilot → Settings → Runtime variables and secrets**, en production, avec l'option **Secret** cochée pour chacun :
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+
+Déployer ces variables, puis vérifier `/api/account/google/config` : `configured` doit devenir `true`. Tester ensuite une connexion réelle depuis Chrome ou Edge. En mode test, ajouter les utilisateurs de test dans Audience ; publier l'application pour la rendre accessible au public après avoir complété les informations requises par Google. Ne pas inventer de pages de confidentialité ou de conditions : leurs liens doivent correspondre à des pages existantes et complètes.
+
+Ne pas transmettre le secret dans le chat, le dépôt GitHub ou le frontend. Le domaine `www.task-pilot.net` redirige vers le domaine principal ; le retour OAuth utilise le domaine principal uniquement.
+
+## Développement local sur Windows
+
 Le parcours est implémenté, mais Google demande des identifiants OAuth propres à votre plateforme. Les clés SNCF / PRIM ne conviennent pas. Ne publiez jamais le secret OAuth et ne le collez pas dans une conversation.
 
 1. Ouvrez [Google Cloud Console](https://console.cloud.google.com/auth/clients), choisissez ou créez un projet pour TaskPilot.
