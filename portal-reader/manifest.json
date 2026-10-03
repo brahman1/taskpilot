@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TaskPilot — Compagnon du portail",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Lecture et suivi des offres visibles. Aucune demande automatique.",
   "permissions": [
     "activeTab",
@@ -15,7 +15,8 @@
     "https://task-pilot.net/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
@@ -30,5 +31,6 @@
   ],
   "action": {
     "default_popup": "popup.html"
-  }
+  },
+  "minimum_chrome_version": "120"
 }

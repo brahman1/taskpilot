@@ -7,7 +7,7 @@
     "build": "node scripts/build.mjs",
     "deploy": "npm run build && wrangler deploy",
     "test:cloud": "npm run build && wrangler deploy --dry-run --outdir .wrangler/cloud-test && node --test cloud-tests.mjs",
-    "test": "node --test tests.mjs transit-tests.mjs offers-tests.mjs reservations-tests.mjs account-tests.mjs auth-security-tests.mjs workdays-tests.mjs mail-security-tests.mjs"
+    "test": "node --test tests.mjs transit-tests.mjs offers-tests.mjs reservations-tests.mjs account-tests.mjs auth-security-tests.mjs workdays-tests.mjs mail-security-tests.mjs monitoring-tests.mjs"
   },
   "dependencies": {
     "jose": "6.2.12"

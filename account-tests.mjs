@@ -21,3 +21,15 @@ test('Origine étrangère refusée et déconnexion invalide la session',async()=
 
 test('Première connexion : choix Plus tard conservé après redémarrage sans effacer le profil',async()=>{assert.equal((await request('me',{cookie:cookieB})).payload.user.taskrabbitSetupDone,false);const r=await request('profile',{method:'POST',cookie:cookieB,data:{taskrabbitSetupDone:true}});assert.equal(r.status,200);assert.equal(r.payload.user.taskrabbitSetupDone,true);assert.equal(r.payload.user.taskrabbitEmail,'');const restarted=await createAccountService(file,{storage,googleConfig:{}});assert.equal(restarted.authenticated({headers:{cookie:cookieB}}).taskrabbitSetupDone,true);});
 test('Adresse Taskrabbit : validation, conservation et indépendance de l’e-mail TaskPilot',async()=>{assert.equal((await request('profile',{method:'POST',cookie:cookieB,data:{taskrabbitEmail:'invalide',taskrabbitSetupDone:true}})).status,400);const r=await request('profile',{method:'POST',cookie:cookieB,data:{taskrabbitEmail:'future-planning@example.invalid'}});assert.equal(r.status,200);assert.equal(r.payload.user.taskrabbitSetupDone,true);assert.equal(r.payload.user.email,'account-b@example.invalid');const renamed=await request('profile',{method:'POST',cookie:cookieB,data:{name:'Nom modifié'}});assert.equal(renamed.payload.user.taskrabbitEmail,'future-planning@example.invalid');const restarted=await createAccountService(file,{storage,googleConfig:{}});assert.equal(restarted.authenticated({headers:{cookie:cookieB}}).taskrabbitEmail,'future-planning@example.invalid');});
+
+test('Surveillance : choix persistants et activation liée au compte Taskrabbit',async()=>{
+ const blank=await request('profile',{method:'POST',cookie:cookieB,data:{taskrabbitEmail:''}});assert.equal(blank.status,200);
+ const config={enabled:true,mode:'scheduled',times:['15:00','11:00'],beforeMinutes:5,afterMinutes:20};
+ assert.equal((await request('monitoring',{method:'POST',cookie:cookieB,data:config})).status,400);
+ await request('profile',{method:'POST',cookie:cookieB,data:{taskrabbitEmail:'future-planning@example.invalid'}});
+ assert.equal((await request('monitoring',{method:'POST',cookie:cookieB,data:{...config,times:['99:00']}})).status,400);
+ const saved=await request('monitoring',{method:'POST',cookie:cookieB,data:config});assert.equal(saved.status,200);assert.deepEqual(saved.payload.user.monitoring.times,['11:00','15:00']);
+ const restarted=await createAccountService(file,{storage,googleConfig:{}});assert.equal(restarted.monitoringFor(saved.payload.user.id).enabled,true);
+ assert.equal((await request('monitoring',{method:'POST',data:config})).status,401);
+ assert.equal((await request('profile',{method:'POST',cookie:cookieB,data:{taskrabbitEmail:''}})).payload.user.monitoring.enabled,false);
+});

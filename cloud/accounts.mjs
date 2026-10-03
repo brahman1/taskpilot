@@ -59,7 +59,7 @@ export class AccountAuthority extends DurableObject {
    return res.response;
   }
   const user=this.accounts.authenticated(req);
-  const upload=url.pathname==='/api/portal/snapshot'&&request.method==='POST';
+  const upload=url.pathname==='/api/portal/snapshot'&&request.method==='POST'||url.pathname==='/api/portal/config'&&request.method==='GET';
   if(!user&&!upload)throw fail('Connectez-vous à TaskPilot.',401);
   if(url.pathname.startsWith('/api/portal/'))return await this.portal(request,user?.id);
   if(url.pathname.startsWith('/api/transit/')){
@@ -74,15 +74,20 @@ export class AccountAuthority extends DurableObject {
  }
  async portal(request,ownerId){
   const url=new URL(request.url);
-  if(url.pathname==='/api/portal/snapshot'&&request.method==='POST'){
+  if(url.pathname==='/api/portal/snapshot'&&request.method==='POST'||url.pathname==='/api/portal/config'&&request.method==='GET'){
    const token=request.headers.get('x-taskpilot-token')||'';if(!/^[a-f0-9-]{72}$/.test(token))throw fail('Associez de nouveau le compagnon.',403);
    const hash=digest(token),owner=this.portalIndex[hash];if(!owner)throw fail('Associez de nouveau le compagnon.',403);
    const vault=await encryptedStorage(this.ctx.storage,this.env.DATA_ENCRYPTION_KEY,'portal:'+owner),record=await vault.load();
    if(!record||record.tokenHash!==hash||record.expiresAt<Date.now())throw fail('Associez de nouveau le compagnon.',403);
-   const req=nodeRequest(request);req.socket.remoteAddress='portal:'+owner;await this.rateLimit(req);
+   if(url.pathname==='/api/portal/config')return json({monitoring:this.accounts.monitoringFor(owner),capabilities:{readOffers:true,autoReserve:false}});
+   const rateKey='rate:portal:'+digest(owner),now=Date.now();let budget=await this.ctx.storage.get(rateKey);
+   if(!budget||budget.until<=now)budget={count:0,until:now+60000};
+   if(budget.count>=10)throw fail('Trop de synchronisations. Réessayez dans une minute.',429);
+   budget.count++;await this.ctx.storage.put(rateKey,budget);await this.schedule();
    const data=await readJson(request,1000000);
    if(data.source!=='taskrabbit-board'||!Array.isArray(data.tasks)||!data.tasks.length||data.tasks.length>1000)throw fail('Liste vide ou source invalide : les offres précédentes sont conservées.');
-   const tasks=normalizeTasks(data.tasks);record.snapshot={tasks,seenAt:Date.now(),scope:'visible-board'};record.revision++;
+   const tasks=normalizeTasks(data.tasks);if(JSON.stringify(record.snapshot?.tasks)!==JSON.stringify(tasks))record.revision++;
+   record.snapshot={tasks,seenAt:Date.now(),scope:'visible-board'};
    await vault.save(record);return json({received:tasks.length,revision:record.revision});
   }
   const vault=await encryptedStorage(this.ctx.storage,this.env.DATA_ENCRYPTION_KEY,'portal:'+ownerId);

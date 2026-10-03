@@ -61,8 +61,15 @@ test('Cloud : inscription vérifiée, envoi durable, cookies sécurisés et sép
 });
 test('Cloud : association du compagnon propre à chaque compte et révocation',async()=>{
  const pairA=await post('/api/portal/pair',{},a.cookie),pairB=await post('/api/portal/pair',{},b.cookie);assert.equal(pairA.status,200);assert.notEqual(pairA.data.token,pairB.data.token);
+ assert.equal((await post('/api/account/monitoring',{enabled:true,mode:'scheduled',times:['15:00','11:00'],beforeMinutes:5,afterMinutes:20},a.cookie)).status,200);
+ const config=await request('/api/portal/config',{headers:{'X-TaskPilot-Token':pairA.data.token}});assert.equal(config.status,200);assert.deepEqual(config.data.monitoring.times,['11:00','15:00']);assert.equal(config.data.capabilities.autoReserve,false);assert.equal(JSON.stringify(config.data).includes(a.user.email),false);
+ assert.equal((await request('/api/portal/config')).status,403);
+ assert.equal((await request('/api/portal/config',{headers:{'X-TaskPilot-Token':pairB.data.token}})).data.monitoring.enabled,false);
  const tasks=[{id:'test-offer',title:'Mission de test',date:'2026-10-05',time:'09:00',duration:60,pay:100,lat:48.85,lon:2.35,department:'Paris',status:'available'}];
  assert.equal((await request('/api/portal/snapshot',{method:'POST',body:{source:'taskrabbit-board',tasks},headers:{'X-TaskPilot-Token':pairA.data.token,Origin:'chrome-extension://test'}})).status,200);
+ const firstRevision=(await request('/api/portal/status',{cookie:a.cookie})).data.revision;
+ await request('/api/portal/snapshot',{method:'POST',body:{source:'taskrabbit-board',tasks},headers:{'X-TaskPilot-Token':pairA.data.token}});
+ assert.equal((await request('/api/portal/status',{cookie:a.cookie})).data.revision,firstRevision,'Une lecture identique ne doit pas interrompre le calcul des trajets');
  assert.equal((await request('/api/portal/status',{cookie:a.cookie})).data.count,1);assert.equal((await request('/api/portal/status',{cookie:b.cookie})).data.count,0);
  await post('/api/portal/pair',{},a.cookie);
  assert.equal((await request('/api/portal/snapshot',{method:'POST',body:{source:'taskrabbit-board',tasks},headers:{'X-TaskPilot-Token':pairA.data.token}})).status,403);
@@ -77,6 +84,7 @@ test('Cloud : comptes, préférences et OAuth conservés après redémarrage',as
  assert.equal((await request('/api/account/me',{cookie:a.cookie})).data.user.id,a.user.id);
  assert.deepEqual((await request('/api/account/state',{cookie:a.cookie})).data.state,{'taskpilot-alerts':'true'});
  const callback=await request('/api/account/google/callback?state='+googleFlow.state+'&error=access_denied',{cookie:googleFlow.cookie});assert.equal(callback.status,303);assert.match(callback.headers.get('location'),/google_cancelled/);
+ assert.equal((await request('/api/account/me',{cookie:a.cookie})).data.user.monitoring.enabled,true);
  assert.match((await request('/api/account/google/callback?state='+googleFlow.state+'&error=access_denied',{cookie:googleFlow.cookie})).headers.get('location'),/google_failed/);
 });
 test('Cloud : calculs réels persistants, jours off et isolation du transport',async()=>{
