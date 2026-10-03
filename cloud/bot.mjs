@@ -1,3 +1,4 @@
+import {parisDay} from '../pilot-policy.mjs';
 import {DurableObject} from 'cloudflare:workers';
 import {encryptedStorage} from './encrypted-storage.mjs';
 import {json} from './security.mjs';
@@ -16,7 +17,7 @@ export class BookingCoordinator extends DurableObject {
   if(this.data.job&&await ctx.storage.getAlarm()===null)await ctx.storage.setAlarm(Date.now()+1000);
  });}
  serialize(fn){const p=this.tail.then(fn);this.tail=p.catch(()=>{});return p;}
- approved(){return this.env.TASKRABBIT_AUTOMATION_APPROVED==='true';}
+ approved(){return this.env.TASKRABBIT_AUTOMATION_APPROVED==='true'||!!this.env.TASKPILOT_PILOT;}
  async save(){await this.vault.save(this.data);}
  authority(){return this.env.ACCOUNTS.getByName('taskpilot-accounts-v1',{locationHint:'weur'});}
  async account(action,data){const response=await this.authority().fetch(new Request('https://taskpilot.internal/bot/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})}));const body=await response.json();if(!response.ok)throw Error(body.error||'Compte indisponible.');return body;}
@@ -26,13 +27,13 @@ export class BookingCoordinator extends DurableObject {
   if(url.pathname==='/status'){
    const owner=request.headers.get('x-taskpilot-user');if(!owner)return json({error:'Compte requis.'},401);
    const budget=freeBudget(this.data.budget);
-   return json({available:this.approved(),autonomous:true,free:true,limitSeconds:FREE_BROWSER_SECONDS,remainingSeconds:Math.max(0,FREE_BROWSER_SECONDS-budget.used),reset:'00:00 UTC',...(this.data.users[owner]||{}),phase:this.data.job?.ownerId===owner?this.data.job.phase:null});
+   const policy=JSON.parse(request.headers.get('x-taskpilot-policy')||'null');return json({available:policy?.available??this.env.TASKRABBIT_AUTOMATION_APPROVED==='true',pilot:policy?.pilot||null,autonomous:true,free:true,limitSeconds:FREE_BROWSER_SECONDS,remainingSeconds:Math.max(0,FREE_BROWSER_SECONDS-budget.used),reset:'00:00 UTC',...(this.data.users[owner]||{}),phase:this.data.job?.ownerId===owner?this.data.job.phase:null});
   }
   if(url.pathname!=='/tick')return json({error:'Route inconnue.'},404);
   if(!this.approved())return json({paused:true,reason:'taskrabbit-authorization'});
   if(this.data.job)return json({running:true});
   const now=Date.now(),{users}=await this.account('users');
-  const eligible=users.filter(u=>monitoringActive(u.monitoring,now)&&now-(this.data.users[u.id]?.lastCheck||0)>=300000).sort((a,b)=>(this.data.users[a.id]?.lastCheck||0)-(this.data.users[b.id]?.lastCheck||0)||a.id.localeCompare(b.id));
+  const eligible=users.filter(u=>(!u.pilot||u.pilot.runDate===parisDay(now))&&monitoringActive(u.monitoring,now)&&now-(this.data.users[u.id]?.lastCheck||0)>=300000).sort((a,b)=>(this.data.users[a.id]?.lastCheck||0)-(this.data.users[b.id]?.lastCheck||0)||a.id.localeCompare(b.id));
   const user=eligible[0];if(!user)return json({idle:true});
   try{reserveBrowser(this.data.budget,now);}catch{this.note(user.id,'Quota gratuit partagé atteint : prochain essai après renouvellement du quota.');await this.save();return json({paused:true});}
   this.data.users[user.id]||={};this.data.users[user.id].lastCheck=now;
@@ -82,7 +83,7 @@ export class BookingCoordinator extends DurableObject {
      // Claim globally before persisting the pending request. An interrupted operation stays held.
      this.data.claims[task.id]={ownerId:job.ownerId,at:Date.now(),state:'uncertain'};await this.save();
      const updated=await this.account('begin',{ownerId:job.ownerId,revision:job.revision,taskId:task.id,claimed:{...this.data.claims,[task.id]:undefined}});job.revision=updated.revision;begun=true;
-    }));}catch(error){if(!begun)throw error;outcome='uncertain';}
+    },{personalPilot:!!context.pilot}));}catch(error){if(!begun)throw error;outcome='uncertain';}
     if(!begun)throw Error('La demande n’a pas été préparée.');this.data.claims[task.id].state=outcome;
     await this.account('finish',{ownerId:job.ownerId,taskId:task.id,outcome});
     this.note(job.ownerId,outcome==='submitted'?'Demande envoyée pour la mission '+task.id+'. Attribution à vérifier dans Taskrabbit.':'Envoi incertain pour la mission '+task.id+'. Vérifiez Taskrabbit : aucun renvoi automatique.');this.data.job=null;

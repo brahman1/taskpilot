@@ -1,6 +1,6 @@
 # Bot autonome TaskPilot : état de livraison
 
-Le code serveur de consultation, de sélection et d’envoi est intégré à Cloudflare. Il est **désactivé en production**, sans demande réelle envoyée pendant les tests.
+Le code serveur de consultation, de sélection et d’envoi est intégré à Cloudflare. L’ouverture générale reste désactivée. Un essai personnel distinct peut être configuré pour un seul compte, une date de contrôle, une date de missions et une tentative maximum. Aucun envoi réel n’a été effectué pendant les tests automatisés.
 
 ## Condition d’activation
 
@@ -8,7 +8,15 @@ La [politique d’utilisation Taskrabbit](https://support.taskrabbit.com/hc/en-u
 
 Une fois cet accord obtenu, le propriétaire configure le secret `TASKRABBIT_AUTOMATION_APPROVED` à `true` avec Wrangler. Les utilisateurs doivent ensuite vérifier leur adresse Taskrabbit, enregistrer leurs critères et horaires, et autoriser explicitement les demandes depuis l’onglet Taskrabbit. Changer d’adresse désactive le bot et impose une nouvelle vérification.
 
-L’adresse de test fournie pendant le développement est protégée contre tout envoi. Ne pas la retirer de cette protection pour un test.
+L’adresse fournie pendant le développement reste protégée par défaut. Seul un essai personnel configuré côté serveur, avec propriété de l’adresse vérifiée et consentement utilisateur, peut bénéficier d’une exception temporaire.
+
+## Essai personnel privé
+
+Le secret Worker `TASKPILOT_PILOT` contient un JSON `{id, ownerEmail, taskrabbitEmail, runDate, targetDate, expiresAt, maxRequests: 1}`. Aucun identifiant personnel n’est enregistré dans les sources ou les ressources publiques. Cet essai ne représente pas un accord de Taskrabbit et ne modifie pas le secret d’autorisation générale.
+
+Le compte TaskPilot doit être vérifié et correspondre à `ownerEmail`. L’adresse Taskrabbit doit correspondre à `taskrabbitEmail` et être vérifiée séparément si nécessaire. L’utilisateur enregistre ses horaires et accepte les conditions avant d’activer les demandes. La consultation est limitée à `runDate` en heure de Paris ; le planning vise explicitement `targetDate`, dont les jours travaillés et tous les critères restent applicables. La date des contrôles peut être un jour de repos.
+
+La tentative est consommée durablement avant l’envoi. Une pause, un redémarrage ou une modification des critères ne remet pas le compteur à zéro. Si l’envoi est incertain ou interrompu, aucune seconde demande n’est autorisée. Le retour de la première demande peut encore être enregistré après consommation du quota. À expiration, aucun nouveau travail ne démarre. Le propriétaire retire le secret après l’essai.
 
 ## Fonctionnement gratuit
 

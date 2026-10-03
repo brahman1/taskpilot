@@ -1,3 +1,4 @@
+import {parisDay} from './pilot-policy.mjs';
 import {defaults,validatePrefs,normalizeTasks,reasons,optimize,tomorrow,mins} from './model.mjs';
 import {monitoringActive} from './portal-reader/schedule.mjs';
 import {isWorkingDate} from './workdays.mjs';
@@ -17,10 +18,11 @@ export function releaseBrowser(budget,seconds,closed,now=Date.now()){
  return {...budget,used:Math.max(0,budget.used-SESSION_RESERVE_SECONDS+Math.min(SESSION_RESERVE_SECONDS,Math.max(1,Math.ceil(seconds))))};
 }
 export function botSettings(context,now=Date.now()){
- if(!context||context.email===protectedTestEmail||!monitoringActive(context.monitoring,now))throw Error('Surveillance en pause.');
+ if(!context||context.email===protectedTestEmail&&!context.pilot||!monitoringActive(context.monitoring,now))throw Error('Surveillance en pause.');
+ if(context.pilot&&(parisDay(now)!==context.pilot.runDate||now>=Date.parse(context.pilot.expiresAt)||context.pilot.used>=context.pilot.maxRequests))throw Error('Essai personnel hors créneau ou terminé.');
  const saved=JSON.parse(context.state?.['taskpilot-v1']||'{}');
  if(!saved.prefs||saved.isDemo)throw Error('Enregistrez des critères réels.');
- const p={...defaults,...saved.prefs};validatePrefs(p);const date=tomorrow();
+ const p={...defaults,...saved.prefs};validatePrefs(p);const date=context.pilot?.targetDate||tomorrow();
  if(!isWorkingDate(date,p))throw Error('Demain est un jour de repos.');
  if(p.maxPending===0)throw Error('Le plafond des demandes en attente est à zéro.');
  if(p.mobility==='bike')throw Error('Le calcul de trajets vélo doit être connecté avant les demandes automatiques.');

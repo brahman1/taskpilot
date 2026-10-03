@@ -7,6 +7,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {defaults,tomorrow} from './model.mjs';
 import {encryptedStorage} from './cloud/encrypted-storage.mjs';
+import {parisDay} from './pilot-policy.mjs';
 
 const origin='https://task-pilot.net',password='Cloud-tests-only-123!',emails=[];
 const persist=await mkdtemp(path.join(os.tmpdir(),'taskpilot-cloud-test-'));
@@ -150,4 +151,23 @@ test('Cloud bot : demandes atomiques, reprise conservée et confirmation utilisa
  plan=JSON.parse((await request('/api/account/state',{cookie:a.cookie})).data.state['taskpilot-v1']);assert.equal(plan.tasks[0].status,'confirmed');assert.equal(plan.tasks[0].requestUncertain,false);
  await post('/api/account/automation',{enabled:false},a.cookie);assert.equal((await internal('context',{ownerId:a.user.id})).status,409);
  await mf.dispose();mf=createRuntime();assert.equal((await request('/api/account/me',{cookie:a.cookie})).data.user.automationEnabled,false);
+});
+test('Cloud essai privé : isolation, tentative unique et persistance sans autorisation globale',async()=>{
+ const config={id:'cloud-private-test',ownerEmail:a.user.email,taskrabbitEmail:a.user.email,runDate:parisDay(),targetDate:tomorrow(),expiresAt:new Date(Date.now()+86400000).toISOString(),maxRequests:1},bindings={TASKPILOT_PILOT:JSON.stringify(config)};
+ await mf.dispose();mf=createRuntime(bindings);
+ assert.equal((await request('/api/bot/status',{cookie:a.cookie})).data.available,true);
+ assert.equal((await request('/api/bot/status',{cookie:b.cookie})).data.available,false);
+ assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},b.cookie)).status,409);
+ const state=(await request('/api/account/state',{cookie:a.cookie})).data,saved=JSON.parse(state.state['taskpilot-v1']);saved.tasks[0].status='available';delete saved.tasks[0].requestUncertain;
+ await request('/api/account/state',{method:'PUT',cookie:a.cookie,body:{revision:state.revision,state:{'taskpilot-v1':JSON.stringify(saved)}}});
+ assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},a.cookie)).status,200);
+ const ns=await mf.getDurableObjectNamespace('ACCOUNTS'),stub=ns.get(ns.idFromName('taskpilot-accounts-v1'));
+ const internal=async(action,body)=>{const response=await stub.fetch('https://taskpilot.internal/bot/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};};
+ const ctx=(await internal('context',{ownerId:a.user.id})).data;
+ assert.equal((await internal('begin',{ownerId:a.user.id,revision:ctx.revision,taskId:saved.tasks[0].id})).status,200);
+ assert.equal((await internal('context',{ownerId:a.user.id})).status,409);
+ assert.equal((await internal('finish',{ownerId:a.user.id,taskId:saved.tasks[0].id,outcome:'uncertain'})).status,200);
+ await mf.dispose();mf=createRuntime(bindings);
+ const status=(await request('/api/bot/status',{cookie:a.cookie})).data;assert.equal(status.available,false);assert.equal(status.pilot.used,1);
+ assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},a.cookie)).status,409);
 });

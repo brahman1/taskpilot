@@ -1,3 +1,4 @@
+import {privatePilot} from '../pilot-policy.mjs';
 import {DurableObject} from 'cloudflare:workers';
 import {randomUUID} from 'node:crypto';
 import {createAccountCore} from '../account-core.mjs';
@@ -27,7 +28,7 @@ export class AccountAuthority extends DurableObject {
     this.outbox[id]={...message,expiresAt:Date.now()+(message.purpose==='reset'?15:60)*60000,attempts:0,nextAttempt:Date.now()};
     await this.outboxVault.save(this.outbox);await this.schedule();return {id};
    }};
-   this.accounts=await createAccountCore({storage:this.vault,mailer,public:true,automationAvailable:env.TASKRABBIT_AUTOMATION_APPROVED==='true',allowedOrigins:[this.origin],googleConfig:{clientId:env.GOOGLE_CLIENT_ID||'',clientSecret:env.GOOGLE_CLIENT_SECRET||''},googleOptions:{pending:this.pending,publicOrigin:this.origin},mailCooldowns:this.cooldowns,rateLimiter:req=>this.rateLimit(req),onMailError:()=>console.warn('Impossible de placer un e-mail dans la file sécurisée.')});
+   this.accounts=await createAccountCore({storage:this.vault,mailer,public:true,automationAvailable:env.TASKRABBIT_AUTOMATION_APPROVED==='true',pilotFor:user=>privatePilot(env.TASKPILOT_PILOT,user),allowedOrigins:[this.origin],googleConfig:{clientId:env.GOOGLE_CLIENT_ID||'',clientSecret:env.GOOGLE_CLIENT_SECRET||''},googleOptions:{pending:this.pending,publicOrigin:this.origin},mailCooldowns:this.cooldowns,rateLimiter:req=>this.rateLimit(req),onMailError:()=>console.warn('Impossible de placer un e-mail dans la file sécurisée.')});
    if(Object.keys(this.outbox).length&&await ctx.storage.getAlarm()===null)await this.schedule();
   });
  }
@@ -45,10 +46,10 @@ export class AccountAuthority extends DurableObject {
  }
  async fetch(request){const result=await this.serialize(async()=>{try{
   if(new URL(request.url).origin==='https://taskpilot.internal'&&new URL(request.url).pathname.startsWith('/bot/')){
-   if(this.env.TASKRABBIT_AUTOMATION_APPROVED!=='true')throw fail('L’autorisation Taskrabbit doit être configurée par le propriétaire.',403);
+   if(this.env.TASKRABBIT_AUTOMATION_APPROVED!=='true'&&!this.env.TASKPILOT_PILOT)throw fail('L’autorisation Taskrabbit doit être configurée par le propriétaire.',403);
    const action=new URL(request.url).pathname.slice(5),data=request.method==='POST'?await readJson(request):{};
    if(action==='users')return json({users:this.accounts.botUsers()});
-   const context=this.accounts.botContext(data.ownerId);if(!context)throw fail('Demandes automatiques désactivées.',409);
+   const context=this.accounts.botContext(data.ownerId,action==='finish');if(!context)throw fail('Demandes automatiques désactivées.',409);
    if(action==='context')return json(context);
    if(action==='offers'){
     if(data.revision!==context.revision)throw fail('Critères modifiés : calcul à recommencer.',409);
@@ -60,6 +61,7 @@ export class AccountAuthority extends DurableObject {
     const {p,date,saved,tasks}=botSettings(context),task=chooseBotTask(tasks,p,date,{...saved.matrix,...saved.transitMatrix},data.claimed||{});
     if(!task||task.id!==data.taskId)throw fail('Mission non compatible avec le planning actuel.',409);
     const ledger=JSON.parse(context.state['taskpilot-requests']||'{}');if(['submitted','uncertain','sent'].includes(ledger[task.id]?.state))throw fail('Cette demande existe déjà.',409);
+    await this.accounts.botConsume(context.id);
     ledger[task.id]={id:task.id,title:task.title,date:task.date,time:task.time,state:'uncertain',automation:true,sentAt:Date.now()};saved.tasks=tasks.map(t=>t.id===task.id?{...t,status:'pending',requestUncertain:true}:t);
     const revision=await this.accounts.botSave(context.id,context.revision,{...context.state,'taskpilot-v1':JSON.stringify(saved),'taskpilot-requests':JSON.stringify(ledger)});return json({revision});
    }
@@ -95,12 +97,12 @@ export class AccountAuthority extends DurableObject {
    const headers=new Headers(request.headers);headers.set('x-taskpilot-user',user.id);
    return {ownerId:user.id,request:new Request(request,{headers})};
   }
-  if(url.pathname==='/api/bot/status'&&request.method==='GET')return {bot:true,ownerId:user.id,request};
+  if(url.pathname==='/api/bot/status'&&request.method==='GET')return {bot:true,ownerId:user.id,policy:this.accounts.botPolicy(user.id),request};
   throw fail('API introuvable.',404);
  }catch(error){return json({error:error.status?error.message:'Service indisponible. Réessayez.'},error.status||503);}});
  // Release the account lock before transit calls: alarms request the shared API budget.
  if(result instanceof Response)return result;
- if(result.bot)return this.env.BOT.getByName('taskpilot-bot-v1',{locationHint:'weur'}).fetch(new Request('https://taskpilot.internal/status',{headers:{'x-taskpilot-user':result.ownerId}}));
+ if(result.bot)return this.env.BOT.getByName('taskpilot-bot-v1',{locationHint:'weur'}).fetch(new Request('https://taskpilot.internal/status',{headers:{'x-taskpilot-user':result.ownerId,'x-taskpilot-policy':JSON.stringify(result.policy)}}));
  return this.env.TRANSIT.getByName('user:'+result.ownerId,{locationHint:'weur'}).fetch(result.request);
  }
  async portal(request,ownerId){

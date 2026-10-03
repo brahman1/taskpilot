@@ -30,8 +30,8 @@ async function login(browser,email){
  await page.waitForSelector('a[id$="single_task_link"]');return page;
 }
 export async function captureOffers(browser,email){const page=await login(browser,email);return page.evaluate(readBoard);}
-export async function requestOffer(browser,email,task,beforeClick){
- if(email===protectedTestEmail||!/^\d+$/.test(task.id))throw Error('Compte ou mission de test : demande interdite.');
+export async function requestOffer(browser,email,task,beforeClick,options={}){
+ if(email===protectedTestEmail&&!options.personalPilot||!/^\d+$/.test(task.id))throw Error('Compte ou mission de test : demande interdite.');
  const page=await login(browser,email);await page.goto(portal+'task_page?distance=0&location_given=false&taskid='+task.id,{waitUntil:'domcontentloaded'});
  await page.waitForSelector('#task_date_time');const fresh=await page.evaluate(readDetail);
  if(!sameOffer(task,fresh,email)||!fresh.canRequest)throw Error('La mission a changé ou n’est plus disponible.');
