@@ -1,5 +1,6 @@
 import {accountStorage} from './account-storage.mjs';
 import {setupMonitoring} from './monitoring-ui.mjs';
+import {setupBot} from './bot-ui.mjs';
 let user=null,registerMode=false,googleConfigured=false;
 const $=s=>document.querySelector(s);
 export function getAccount(){return user;}
@@ -10,7 +11,7 @@ async function startApp(){await accountStorage.initialize();
  // Remove matching legacy copies only after the migrated account data has loaded successfully.
  const legacyKeys=['taskpilot-v1','taskpilot-requests','taskpilot-alerts'].filter(key=>localStorage.getItem(key)!==null);
  if(legacyKeys.length&&legacyKeys.every(key=>localStorage.getItem(key)===accountStorage.getItem(key))){for(const key of legacyKeys)localStorage.removeItem(key);localStorage.setItem('taskpilot-migration-owner',user.id);}
- drawUser();await import('./app.mjs');setupMonitoring({getUser:()=>user,saveProfile:async data=>{user=(await api('profile',data)).user;drawUser();},saveMonitoring:async data=>{user=(await api('monitoring',data)).user;drawUser();},showAccount:()=>{$('#accountButton').click();$('#accountTaskrabbitEmail').focus();}});document.body.classList.add('authenticated');$('#authScreen').hidden=true;if(!user.taskrabbitSetupDone&&!user.taskrabbitEmail&&!$('#emailTokenDialog').open){$('#welcomeTaskrabbitEmail').value='';$('#welcomeTaskrabbitError').textContent='';$('#taskrabbitWelcome').showModal();}}
+ drawUser();await import('./app.mjs');setupMonitoring({getUser:()=>user,saveProfile:async data=>{user=(await api('profile',data)).user;drawUser();},saveMonitoring:async data=>{user=(await api('monitoring',data)).user;drawUser();},showAccount:()=>{$('#accountButton').click();$('#accountTaskrabbitEmail').focus();}});setupBot({getUser:()=>user,updateUser:next=>{user=next;drawUser();}});document.body.classList.add('authenticated');$('#authScreen').hidden=true;if(!user.taskrabbitSetupDone&&!user.taskrabbitEmail&&!$('#emailTokenDialog').open){$('#welcomeTaskrabbitEmail').value='';$('#welcomeTaskrabbitError').textContent='';$('#taskrabbitWelcome').showModal();}}
 function mode(register){registerMode=register;$('#authTitle').textContent=register?'Créer votre compte':'Se connecter';$('#authSubmit').textContent=register?'Créer mon compte':'Se connecter';$('#authTabLogin').classList.toggle('active',!register);$('#authTabRegister').classList.toggle('active',register);$('#registrationFields').hidden=!register;$('#registrationFields').querySelectorAll('input').forEach(input=>input.disabled=!register);$('#loginPassword').minLength=register?10:1;$('#loginPassword').autocomplete=register?'new-password':'current-password';$('#authError').textContent='';}
 $('#authTabLogin').onclick=()=>mode(false);$('#authTabRegister').onclick=()=>mode(true);
 const legacyPresent=!!localStorage.getItem('taskpilot-v1')&&!localStorage.getItem('taskpilot-migration-owner');$('#migrationChoice').hidden=!legacyPresent;$('#migrateExisting').checked=legacyPresent;

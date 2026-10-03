@@ -1,7 +1,8 @@
 import {publicOrigin,secureResponse,json} from './security.mjs';
 export {AccountAuthority} from './accounts.mjs';
 export {TransitPlanner} from './transit.mjs';
-export default {async fetch(request,env){try{
+export {BookingCoordinator} from './bot.mjs';
+export default {async scheduled(event,env,ctx){ctx.waitUntil(env.BOT.getByName('taskpilot-bot-v1',{locationHint:'weur'}).fetch('https://taskpilot.internal/tick'));},async fetch(request,env){try{
  const url=new URL(request.url),origin=publicOrigin(env);
  if(url.origin!==origin){
   if(url.hostname==='www.'+new URL(origin).hostname)return secureResponse(Response.redirect(origin+url.pathname+url.search,308));

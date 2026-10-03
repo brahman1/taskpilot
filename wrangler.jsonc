@@ -6,6 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
+  "browser": {"binding": "BROWSER"},
+  "triggers": {"crons": ["* * * * *"]},
   "assets": {"directory": "./public", "binding": "ASSETS", "run_worker_first": true},
   "vars": {"PUBLIC_URL": "https://task-pilot.net", "MAIL_FROM": "connexion@mail.task-pilot.net"},
   "routes": [
@@ -14,8 +16,9 @@
   ],
   "durable_objects": {"bindings": [
     {"name": "ACCOUNTS", "class_name": "AccountAuthority"},
-    {"name": "TRANSIT", "class_name": "TransitPlanner"}
+    {"name": "TRANSIT", "class_name": "TransitPlanner"},
+    {"name": "BOT", "class_name": "BookingCoordinator"}
   ]},
-  "migrations": [{"tag": "v1", "new_sqlite_classes": ["AccountAuthority", "TransitPlanner"]}],
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["AccountAuthority", "TransitPlanner"]},{"tag":"v2","new_sqlite_classes":["BookingCoordinator"]}],
   "observability": {"enabled": false}
 }

@@ -5,7 +5,7 @@ import {randomBytes} from 'node:crypto';
 import {mkdtemp,rm,readFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {defaults} from './model.mjs';
+import {defaults,tomorrow} from './model.mjs';
 import {encryptedStorage} from './cloud/encrypted-storage.mjs';
 
 const origin='https://task-pilot.net',password='Cloud-tests-only-123!',emails=[];
@@ -19,7 +19,7 @@ function createRuntime(bindings={}){
   if(url.origin==='https://prim.iledefrance-mobilites.fr')return new Response('{}',{status:400});
   throw Error('Appel réseau externe non simulé refusé : '+url.origin);
  };
- return new Miniflare(convertV4MiniflareOptions({name:'taskpilot',modules:true,scriptPath:'.wrangler/cloud-test/worker.js',compatibilityDate:'2026-10-03',compatibilityFlags:['nodejs_compat'],cf:false,outboundService,durableObjects:{ACCOUNTS:{className:'AccountAuthority',useSQLite:true},TRANSIT:{className:'TransitPlanner',useSQLite:true}},resourcePersistencePath:persist,assets:{directory:'public',binding:'ASSETS',run_worker_first:true,routerConfig:{has_user_worker:true}},bindings:{PUBLIC_URL:origin,DATA_ENCRYPTION_KEY:key,RESEND_API_KEY:'test-only',MAIL_FROM:'connexion@mail.task-pilot.net',GOOGLE_CLIENT_ID:'test.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'test-only',PRIM_API_KEY:'test-prim-only',...bindings}}));
+ return new Miniflare(convertV4MiniflareOptions({name:'taskpilot',modules:true,scriptPath:'.wrangler/cloud-test/worker.js',compatibilityDate:'2026-10-03',compatibilityFlags:['nodejs_compat'],cf:false,outboundService,durableObjects:{ACCOUNTS:{className:'AccountAuthority',useSQLite:true},TRANSIT:{className:'TransitPlanner',useSQLite:true},BOT:{className:'BookingCoordinator',useSQLite:true}},resourcePersistencePath:persist,assets:{directory:'public',binding:'ASSETS',run_worker_first:true,routerConfig:{has_user_worker:true}},bindings:{PUBLIC_URL:origin,DATA_ENCRYPTION_KEY:key,RESEND_API_KEY:'test-only',MAIL_FROM:'connexion@mail.task-pilot.net',GOOGLE_CLIENT_ID:'test.apps.googleusercontent.com',GOOGLE_CLIENT_SECRET:'test-only',PRIM_API_KEY:'test-prim-only',...bindings}}));
 }
 async function request(route,{method='GET',cookie,body,headers={}}={}){
  const h={...headers,'CF-Connecting-IP':'192.0.2.'+Math.floor(Math.random()*250)};
@@ -107,4 +107,47 @@ test('Cloud : chiffrement fragmenté, altération et mauvaise clé refusées',as
 test('Cloud : aucun compte local transféré et aucune clé dans les ressources publiques',async()=>{
  async function inspect(dir){for(const name of await readdir(dir,{withFileTypes:true})){const file=path.join(dir,name.name);if(name.isDirectory())await inspect(file);else {const text=await readFile(file,'utf8');assert.ok(!text.includes(key));assert.ok(!text.includes('test-prim-only'));assert.ok(!/\.dpapi$|^client_secret/.test(name.name));}}}
  await inspect('public');
+});
+test('Cloud bot : statut privé, version gratuite et activation bloquée sans autorisation',async()=>{
+ assert.equal((await request('/api/bot/status')).status,401);
+ const status=await request('/api/bot/status',{cookie:a.cookie});assert.equal(status.status,200,JSON.stringify(status.data));assert.equal(status.data.available,false);assert.equal(status.data.limitSeconds,450);assert.equal(status.data.remainingSeconds,450);
+ assert.ok(!JSON.stringify(status.data).includes(b.user.email));
+ assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},a.cookie)).status,409);
+ const ns=await mf.getDurableObjectNamespace('BOT'),stub=ns.get(ns.idFromName('taskpilot-bot-v1'));
+ const tick=await stub.fetch('https://taskpilot.internal/tick');assert.equal((await tick.json()).reason,'taskrabbit-authorization');
+ assert.equal((await request('/api/bot/context',{cookie:a.cookie})).status,404);
+ const forbidden=await mf.dispatchFetch('https://taskpilot.internal/bot/users');assert.equal(forbidden.status,403);
+});
+test('Cloud bot : vérification Taskrabbit distincte et invalidation après changement',async()=>{
+ const response=await post('/api/account/taskrabbit-verification',{},a.cookie);assert.equal(response.status,200);
+ const mail=await waitFor(()=>emails.find(m=>m.to[0]===a.user.taskrabbitEmail&&m.text.includes('#verify-taskrabbit=')));
+ const token=mail.text.match(/#verify-taskrabbit=([a-f0-9]{64})/)[1];
+ assert.equal((await post('/api/account/verify-taskrabbit',{token})).status,200);
+ assert.equal((await request('/api/account/me',{cookie:a.cookie})).data.user.taskrabbitVerified,true);
+ assert.equal((await post('/api/account/verify-taskrabbit',{token})).status,400);
+ await post('/api/account/profile',{taskrabbitEmail:'another@taskpilot.invalid'},a.cookie);
+ assert.equal((await request('/api/account/me',{cookie:a.cookie})).data.user.taskrabbitVerified,false);
+});
+test('Cloud bot : demandes atomiques, reprise conservée et confirmation utilisateur préservée',async()=>{
+ await mf.dispose();mf=createRuntime({TASKRABBIT_AUTOMATION_APPROVED:'true'});
+ await post('/api/account/profile',{taskrabbitEmail:a.user.email},a.cookie);
+ await post('/api/account/monitoring',{enabled:true,mode:'all'},a.cookie);
+ const p={...defaults,workDays:[1,2,3,4,5,6,7],lunch:false,returnHome:false,minPay:0,minRate:0,overrun:0,zoneMode:'all'},date=tomorrow();
+ const task={id:'1234567',date,time:'09:00',duration:60,pay:100,lat:p.lat,lon:p.lon,status:'available',brand:'IKEA',address:'12 rue Test, 69001'};
+ const matrix={'home>1234567':{provider:'ign',mode:'car',available:true,minutes:10,km:1,signature:JSON.stringify(['car',p.lat,p.lon,task.lat,task.lon]),fetchedAt:Date.now()}};
+ let state=(await request('/api/account/state',{cookie:a.cookie})).data;
+ const saved={prefs:p,tasks:[task],matrix,transitMatrix:{}};
+ assert.equal((await request('/api/account/state',{method:'PUT',cookie:a.cookie,body:{revision:state.revision,state:{...state.state,'taskpilot-v1':JSON.stringify(saved)}}})).status,200);
+ assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},a.cookie)).status,200);
+ const ns=await mf.getDurableObjectNamespace('ACCOUNTS'),stub=ns.get(ns.idFromName('taskpilot-accounts-v1'));
+ const internal=async(action,body)=>{const response=await stub.fetch('https://taskpilot.internal/bot/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};};
+ const context=(await internal('context',{ownerId:a.user.id})).data;
+ assert.equal((await internal('begin',{ownerId:a.user.id,revision:context.revision-1,taskId:task.id})).status,409);
+ const starts=await Promise.all([internal('begin',{ownerId:a.user.id,revision:context.revision,taskId:task.id}),internal('begin',{ownerId:a.user.id,revision:context.revision,taskId:task.id})]);assert.deepEqual(starts.map(r=>r.status).sort(),[200,409]);
+ state=(await request('/api/account/state',{cookie:a.cookie})).data;let plan=JSON.parse(state.state['taskpilot-v1']);assert.equal(plan.tasks[0].status,'pending');assert.equal(plan.tasks[0].requestUncertain,true);
+ plan.tasks[0].status='confirmed';await request('/api/account/state',{method:'PUT',cookie:a.cookie,body:{revision:state.revision,state:{...state.state,'taskpilot-v1':JSON.stringify(plan)}}});
+ assert.equal((await internal('finish',{ownerId:a.user.id,taskId:task.id,outcome:'submitted'})).status,200);
+ plan=JSON.parse((await request('/api/account/state',{cookie:a.cookie})).data.state['taskpilot-v1']);assert.equal(plan.tasks[0].status,'confirmed');assert.equal(plan.tasks[0].requestUncertain,false);
+ await post('/api/account/automation',{enabled:false},a.cookie);assert.equal((await internal('context',{ownerId:a.user.id})).status,409);
+ await mf.dispose();mf=createRuntime();assert.equal((await request('/api/account/me',{cookie:a.cookie})).data.user.automationEnabled,false);
 });

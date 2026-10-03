@@ -7,7 +7,7 @@ const root=path.resolve(fileURLToPath(new URL('../',import.meta.url))),output=pa
 const files=['index.html','presentation.html','confidentialite.html','conditions.html','legal.css','style.css','journey.css','account-client.mjs','account-storage.mjs','email-account-client.mjs','app.mjs','model.mjs','workdays.mjs','department-data.mjs','department-list.json','departments.json','journey-view.mjs','line-palette.mjs','offers-ui.mjs','offers.mjs','request-queue.mjs','reservations.mjs','road-routes.mjs','transit-core.mjs','transit-ui.mjs','zone-model.mjs','zones.mjs'];
 if(path.dirname(output)!==root||path.basename(output)!=='public')throw Error('Chemin de construction invalide.');
 await rm(output,{recursive:true,force:true});await mkdir(output,{recursive:true});
-files.push('monitoring-ui.mjs','monitoring.css','portal-reader/schedule.mjs');
+files.push('monitoring-ui.mjs','bot-ui.mjs','monitoring.css','portal-reader/schedule.mjs');
 for(const file of files){await mkdir(path.dirname(path.join(output,file)),{recursive:true});await copyFile(path.join(root,file),path.join(output,file));}
 const companionFiles=['manifest.json','background.js','popup.html','popup.js','reader.js','watch.js','schedule.mjs','INSTALLATION.md'];
 await writeFile(path.join(output,'taskpilot-compagnon.zip'),zipFiles(await Promise.all(companionFiles.map(async name=>({name,data:await readFile(path.join(root,'portal-reader',name))})))));
