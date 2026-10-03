@@ -1,0 +1,116 @@
+import {DurableObject} from 'cloudflare:workers';
+import {randomUUID} from 'node:crypto';
+import {createAccountCore} from '../account-core.mjs';
+import {createAccountMailer} from '../account-mail-core.mjs';
+import {normalizeTasks} from '../model.mjs';
+import {encryptedStorage} from './encrypted-storage.mjs';
+import {publicOrigin,json,fail,readJson,digest,nodeRequest,nodeResponse} from './security.mjs';
+
+export class AccountAuthority extends DurableObject {
+ constructor(ctx,env){super(ctx,env);this.ctx=ctx;this.env=env;this.tail=Promise.resolve();
+  ctx.blockConcurrencyWhile(async()=>{
+   this.origin=publicOrigin(env);
+   this.vault=await encryptedStorage(ctx.storage,env.DATA_ENCRYPTION_KEY,'accounts');
+   this.flowVault=await encryptedStorage(ctx.storage,env.DATA_ENCRYPTION_KEY,'google-flows');
+   this.cooldownVault=await encryptedStorage(ctx.storage,env.DATA_ENCRYPTION_KEY,'mail-cooldowns');
+   this.outboxVault=await encryptedStorage(ctx.storage,env.DATA_ENCRYPTION_KEY,'mail-outbox');
+   this.portalIndexVault=await encryptedStorage(ctx.storage,env.DATA_ENCRYPTION_KEY,'portal-index');
+   this.pending=new Map(await this.flowVault.load()||[]);
+   this.cooldowns=new Map(await this.cooldownVault.load()||[]);
+   this.outbox=await this.outboxVault.load()||{};
+   this.portalIndex=await this.portalIndexVault.load()||{};
+   this.realMailer=createAccountMailer({apiKey:env.RESEND_API_KEY,from:env.MAIL_FROM,publicUrl:this.origin});
+   const mailer={configured:this.realMailer.configured,send:async message=>{
+    const id=digest(message.token+message.purpose);
+    if(Object.keys(this.outbox).length>=100)throw Error('File e-mail pleine.');
+    this.outbox[id]={...message,expiresAt:Date.now()+(message.purpose==='reset'?15:60)*60000,attempts:0,nextAttempt:Date.now()};
+    await this.outboxVault.save(this.outbox);await this.schedule();return {id};
+   }};
+   this.accounts=await createAccountCore({storage:this.vault,mailer,public:true,allowedOrigins:[this.origin],googleConfig:{clientId:env.GOOGLE_CLIENT_ID||'',clientSecret:env.GOOGLE_CLIENT_SECRET||''},googleOptions:{pending:this.pending,publicOrigin:this.origin},mailCooldowns:this.cooldowns,rateLimiter:req=>this.rateLimit(req),onMailError:()=>console.warn('Impossible de placer un e-mail dans la file sécurisée.')});
+   if(Object.keys(this.outbox).length&&await ctx.storage.getAlarm()===null)await this.schedule();
+  });
+ }
+ serialize(action){const result=this.tail.then(action);this.tail=result.catch(()=>{});return result;}
+ async rateLimit(req){
+  const key='rate:'+digest(req.socket.remoteAddress),now=Date.now();
+  let item=await this.ctx.storage.get(key);if(!item||item.until<=now)item={count:0,until:now+600000};
+  if(item.count>=30)throw fail('Trop de tentatives. Réessayez dans quelques minutes.',429);
+  item.count++;await this.ctx.storage.put(key,item);await this.schedule();
+ }
+ async schedule(){
+  const now=Date.now(),times=Object.values(this.outbox||{}).map(m=>m.nextAttempt);
+  const next=Math.max(now+500,Math.min(now+600000,...times));const current=await this.ctx.storage.getAlarm();
+  if(current===null||current>next)await this.ctx.storage.setAlarm(next);
+ }
+ async fetch(request){const result=await this.serialize(async()=>{try{
+  if(request.url==='https://taskpilot.internal/transit-permit'&&request.method==='GET'){
+   const now=Date.now();let budget=await this.ctx.storage.get('shared-transit-budget');
+   if(!budget||budget.until<=now)budget={count:0,until:now+60000};
+   const limit=Math.max(1,Math.min(120,Number(this.env.TRANSIT_REQUESTS_PER_MINUTE)||30));
+   if(budget.count>=limit)return json({retryAt:budget.until+500},429);
+   budget.count++;await this.ctx.storage.put('shared-transit-budget',budget);return json({allowed:true});
+  }
+  const url=new URL(request.url),req=nodeRequest(request);
+  if(url.origin!==this.origin)throw fail('Adresse refusée.',403);
+  if(url.pathname.startsWith('/api/account/')){
+   if(!['GET','HEAD'].includes(request.method)){const data=await readJson(request);req[Symbol.asyncIterator]=async function*(){yield Buffer.from(JSON.stringify(data));};}
+   const res=nodeResponse();await this.accounts.api(req,res,url);await this.accounts.waitForMail();
+   await this.flowVault.save([...this.pending]);await this.cooldownVault.save([...this.cooldowns]);
+   return res.response;
+  }
+  const user=this.accounts.authenticated(req);
+  const upload=url.pathname==='/api/portal/snapshot'&&request.method==='POST';
+  if(!user&&!upload)throw fail('Connectez-vous à TaskPilot.',401);
+  if(url.pathname.startsWith('/api/portal/'))return await this.portal(request,user?.id);
+  if(url.pathname.startsWith('/api/transit/')){
+   const headers=new Headers(request.headers);headers.set('x-taskpilot-user',user.id);
+   return {ownerId:user.id,request:new Request(request,{headers})};
+  }
+  throw fail('API introuvable.',404);
+ }catch(error){return json({error:error.status?error.message:'Service indisponible. Réessayez.'},error.status||503);}});
+ // Release the account lock before transit calls: alarms request the shared API budget.
+ if(result instanceof Response)return result;
+ return this.env.TRANSIT.getByName('user:'+result.ownerId,{locationHint:'weur'}).fetch(result.request);
+ }
+ async portal(request,ownerId){
+  const url=new URL(request.url);
+  if(url.pathname==='/api/portal/snapshot'&&request.method==='POST'){
+   const token=request.headers.get('x-taskpilot-token')||'';if(!/^[a-f0-9-]{72}$/.test(token))throw fail('Associez de nouveau le compagnon.',403);
+   const hash=digest(token),owner=this.portalIndex[hash];if(!owner)throw fail('Associez de nouveau le compagnon.',403);
+   const vault=await encryptedStorage(this.ctx.storage,this.env.DATA_ENCRYPTION_KEY,'portal:'+owner),record=await vault.load();
+   if(!record||record.tokenHash!==hash||record.expiresAt<Date.now())throw fail('Associez de nouveau le compagnon.',403);
+   const req=nodeRequest(request);req.socket.remoteAddress='portal:'+owner;await this.rateLimit(req);
+   const data=await readJson(request,1000000);
+   if(data.source!=='taskrabbit-board'||!Array.isArray(data.tasks)||!data.tasks.length||data.tasks.length>1000)throw fail('Liste vide ou source invalide : les offres précédentes sont conservées.');
+   const tasks=normalizeTasks(data.tasks);record.snapshot={tasks,seenAt:Date.now(),scope:'visible-board'};record.revision++;
+   await vault.save(record);return json({received:tasks.length,revision:record.revision});
+  }
+  const vault=await encryptedStorage(this.ctx.storage,this.env.DATA_ENCRYPTION_KEY,'portal:'+ownerId);
+  let record=await vault.load();
+  if(url.pathname==='/api/portal/pair'&&request.method==='POST'){
+   if(request.headers.get('origin')!==this.origin)throw fail('Origine refusée.',403);
+   const req=nodeRequest(request);await this.rateLimit(req);
+   if(record?.tokenHash)delete this.portalIndex[record.tokenHash];
+   const token=randomUUID()+randomUUID(),tokenHash=digest(token);record={tokenHash,expiresAt:Date.now()+90*86400000,revision:0,snapshot:null};
+   this.portalIndex[tokenHash]=ownerId;await vault.save(record);await this.portalIndexVault.save(this.portalIndex);return json({token});
+  }
+  const paired=!!record&&record.expiresAt>Date.now();
+  if(url.pathname==='/api/portal/status'&&request.method==='GET')return json({paired,revision:record?.revision||0,lastSeenAt:record?.snapshot?.seenAt,count:record?.snapshot?.tasks.length||0});
+  if(url.pathname==='/api/portal/snapshot'&&request.method==='GET')return json({revision:record?.revision||0,snapshot:paired&&record.revision>Number(url.searchParams.get('after')||0)?record.snapshot:null});
+  throw fail('Route inconnue.',404);
+ }
+ async alarm(){return this.serialize(async()=>{
+  const now=Date.now();
+  for(const [key,item]of await this.ctx.storage.list({prefix:'rate:'}))if(item.until<=now)await this.ctx.storage.delete(key);
+  for(const [key,item]of this.pending)if(item.expires<=now)this.pending.delete(key);
+  for(const [key,until]of this.cooldowns)if(until<=now)this.cooldowns.delete(key);
+  for(const [id,message]of Object.entries(this.outbox)){
+   if(message.expiresAt<=now||message.attempts>=6){delete this.outbox[id];continue;}
+   if(message.nextAttempt>now)continue;
+   try{await this.realMailer.send({...message,idempotencyKey:'taskpilot-'+id});delete this.outbox[id];}
+   catch{message.attempts++;message.nextAttempt=Date.now()+Math.min(300000,10000*2**message.attempts);console.warn('Envoi e-mail à réessayer.');}
+  }
+  await this.outboxVault.save(this.outbox);await this.flowVault.save([...this.pending]);await this.cooldownVault.save([...this.cooldowns]);
+  if(Object.keys(this.outbox).length||this.pending.size||this.cooldowns.size||(await this.ctx.storage.list({prefix:'rate:',limit:1})).size)await this.schedule();
+ });}
+}

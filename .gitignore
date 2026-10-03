@@ -1,0 +1,14 @@
+node_modules/
+public/
+.wrangler/
+.dev.vars*
+.env*
+!.env.example
+*.dpapi
+*.key
+client_secret*.json
+taskpilot-accounts*.json
+work/
+private/
+*.zip
+*.log

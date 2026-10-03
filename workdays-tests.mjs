@@ -1,0 +1,18 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {Readable} from 'node:stream';
+import {defaults,validatePrefs,optimize,normalizeTasks,reasons} from './model.mjs';
+import {isWorkingDate,weekdayForDate,workDaysLabel} from './workdays.mjs';
+import {roadMatrix} from './road-routes.mjs';
+import {transitApi} from './transit-server.mjs';
+const sunday='2026-10-04',monday='2026-10-05';
+const p={...defaults,workDays:[1,2,3,4,5,6],lunch:false,minRate:0,returnHome:false};
+const mission=(date,status='available')=>normalizeTasks([{id:'weekly-test',date,time:'09:00',duration:60,pay:75,lat:p.lat,lon:p.lon,status}])[0];
+test('Dimanche non coché : aucun planning, lundi coché : planning disponible',()=>{assert.equal(isWorkingDate(sunday,p),false);assert.equal(optimize([mission(sunday)],p,sunday).dayOff,true);assert.deepEqual(optimize([mission(sunday)],p,sunday).plans,[]);assert.equal(optimize([mission(monday)],p,monday).plans.length,1);});
+test('Missions confirmées et demandes en attente ne contournent pas un jour de repos',()=>{for(const status of ['confirmed','pending']){const task=mission(sunday,status);assert.ok(reasons(task,p,sunday).includes('Jour de repos'));assert.equal(optimize([task],p,sunday).plans.length,0);assert.equal(task.status,status);}});
+test('Tout décocher désactive la planification pour toute la semaine',()=>{const off={...p,workDays:[]};validatePrefs(off);for(let day=4;day<=10;day++){const date='2026-10-'+String(day).padStart(2,'0');assert.equal(optimize([mission(date)],off,date).dayOff,true);}assert.equal(workDaysLabel(off),'Aucun jour travaillé');});
+test('Anciennes préférences sans jours : conserve tous les jours autorisés',()=>{const legacy={...p};delete legacy.workDays;assert.equal(isWorkingDate(sunday,legacy),true);assert.equal(optimize([mission(sunday)],legacy,sunday).plans.length,1);assert.equal(workDaysLabel(legacy),'Tous les jours');});
+test('Jours invalides, doublons et types incorrects sont refusés',()=>{for(const workDays of [null,'dimanche',[0],[8],[1,1],['1'],[1.5]])assert.throws(()=>validatePrefs({...p,workDays}));});
+test('Date civile indépendante du fuseau, y compris changement d’heure et date invalide',()=>{assert.equal(weekdayForDate('2026-10-25'),7);assert.equal(weekdayForDate('2026-03-29'),7);assert.equal(weekdayForDate(monday),1);for(const date of ['2026-02-30','','2026-10-04T00:00:00Z'])assert.throws(()=>weekdayForDate(date));});
+test('Jour de repos : aucun appel IGN pour calculer une matrice routière',async t=>{let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;throw Error('Appel imprévu');});await assert.rejects(roadMatrix([mission(sunday)],p,sunday,{},()=>{}),/Jour de repos/);assert.equal(calls,0);});
+test('API transports : jour de repos refusé avant création de calcul et appel fournisseur',async t=>{let calls=0;t.mock.method(globalThis,'fetch',async()=>{calls++;throw Error('Appel imprévu');});const req=Readable.from([Buffer.from(JSON.stringify({p:{...p,mobility:'transit'},date:sunday,tasks:[mission(sunday)]}))]);req.method='POST';req.headers={host:'127.0.0.1:4173',origin:'http://127.0.0.1:4173','content-type':'application/json'};let status,payload;await transitApi(req,{writeHead(s){status=s;},end(value){payload=JSON.parse(value);}},new URL('http://127.0.0.1:4173/api/transit/jobs'),'weekly-test');assert.equal(status,409);assert.match(payload.error,/Jour de repos/);assert.equal(calls,0);});

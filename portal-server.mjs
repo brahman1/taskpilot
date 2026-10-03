@@ -1,0 +1,13 @@
+import {randomUUID,timingSafeEqual} from 'node:crypto';
+import {normalizeTasks} from './model.mjs';
+let token='',latest=null,revision=0,pairOwner='';
+const respond=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
+async function body(req){const chunks=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>1000000)throw Error('Liste trop volumineuse.');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+export async function portalApi(req,res,url,ownerId='test'){try{if(!['127.0.0.1:4173','localhost:4173'].includes(req.headers.host))return respond(res,403,{error:'Hôte refusé.'});const local=['http://127.0.0.1:4173','http://localhost:4173'].includes(req.headers.origin);if(req.method==='POST'&&!req.headers['content-type']?.startsWith('application/json'))return respond(res,403,{error:'Format refusé.'});
+ if(url.pathname==='/api/portal/pair'&&req.method==='POST'){if(!local)return respond(res,403,{error:'Origine refusée.'});token=randomUUID()+randomUUID();pairOwner=ownerId;latest=null;revision=0;return respond(res,200,{token});}
+ if(req.method==='GET'&&pairOwner!==ownerId)return respond(res,200,{paired:false,revision:0,snapshot:null,count:0});
+ if(url.pathname==='/api/portal/status'&&req.method==='GET')return respond(res,200,{paired:!!token,revision,lastSeenAt:latest?.seenAt,count:latest?.tasks.length||0});
+ if(url.pathname==='/api/portal/snapshot'&&req.method==='GET')return respond(res,200,{revision,snapshot:revision>Number(url.searchParams.get('after')||0)?latest:null});
+ if(url.pathname==='/api/portal/snapshot'&&req.method==='POST'){const supplied=String(req.headers['x-taskpilot-token']||'');if(!token||supplied.length!==token.length||!timingSafeEqual(Buffer.from(supplied),Buffer.from(token)))return respond(res,403,{error:'Associez de nouveau le compagnon.'});const data=await body(req);if(data.source!=='taskrabbit-board'||data.tasks?.length===0)return respond(res,400,{error:'Liste vide ou source inconnue : conserver les offres précédentes.'});const tasks=normalizeTasks(data.tasks);latest={tasks,seenAt:Date.now(),scope:'visible-board'};revision++;return respond(res,200,{received:tasks.length,revision});}
+ return respond(res,404,{error:'Route inconnue.'});
+ }catch(e){respond(res,400,{error:e.message||'Import invalide.'});}}

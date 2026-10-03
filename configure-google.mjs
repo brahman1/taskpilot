@@ -1,0 +1,10 @@
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {protectWindows} from './protected-storage.mjs';
+const source=process.argv[2];if(!source)throw Error('Usage : node configure-google.mjs chemin-du-json-téléchargé-de-Google');
+const document=JSON.parse(await readFile(source,'utf8')),client=document.web;
+if(!client?.client_id?.endsWith('.apps.googleusercontent.com')||!client.client_secret)throw Error('Sélectionnez un client OAuth de type Application Web.');
+for(const uri of ['http://127.0.0.1:4173/api/account/google/callback','http://localhost:4173/api/account/google/callback'])if(!client.redirect_uris?.includes(uri))throw Error('Ajoutez cette URI de redirection au client Google : '+uri);
+const file=fileURLToPath(new URL('../../work/private/taskpilot-google.dpapi',import.meta.url));await mkdir(path.dirname(file),{recursive:true});await writeFile(file,await protectWindows(JSON.stringify({clientId:client.client_id,clientSecret:client.client_secret})),{mode:0o600});
+console.log('Configuration Google protégée. Supprimez le JSON téléchargé qui contient le secret, puis redémarrez TaskPilot.');

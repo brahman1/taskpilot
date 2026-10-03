@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "TaskPilot — Compagnon du portail",
+  "version": "2.1.0",
+  "description": "Lecture et suivi des offres visibles. Aucune demande automatique.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://taskrabbitlimited.outsystemsenterprise.com/TaskPortal/*",
+    "http://127.0.0.1:4173/*",
+    "https://task-pilot.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://taskrabbitlimited.outsystemsenterprise.com/TaskPortal/board*"
+      ],
+      "js": [
+        "reader.js",
+        "watch.js"
+      ]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

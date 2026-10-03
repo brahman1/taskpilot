@@ -1,0 +1,8 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {reservations,reservationDay} from './reservations.mjs';
+import {defaults,normalizeTasks,optimize} from './model.mjs';
+const date='2026-10-03',task={id:'r1',date,time:'10:00',duration:60,pay:30,lat:48.85,lon:2.35,address:'Paris',status:'pending'};
+test('Toutes les réservations restent visibles, même autres dates, sans coordonnées ou annulées',()=>{const tasks=normalizeTasks([task,{...task,id:'r2',date:'2026-10-04',lat:null,lon:null,status:'confirmed'},{...task,id:'r3',status:'unavailable',cancelledLocally:true},{...task,id:'r4',status:'available'}]);assert.deepEqual(reservations(tasks).map(t=>t.id),['r1','r3','r2']);assert.equal(reservationDay(tasks,date).pending.length,1);});
+test('Le planning final ne sélectionne que les confirmations, sans ajouter les offres disponibles',()=>{const tasks=normalizeTasks([{...task,status:'confirmed'},{...task,id:'r2',time:'14:00',status:'available',pay:500},{...task,id:'r3',time:'16:00',status:'unavailable',cancelledLocally:true}]);const p={...defaults,lat:task.lat,lon:task.lon,minRate:0,minPay:100,lunch:false};const result=optimize(reservationDay(tasks,date).confirmed,p,date);assert.deepEqual(result.plans[0].seq.map(x=>x.task.id),['r1']);});
+test('Deux confirmations incompatibles déclenchent un conflit sans en masquer une dans la liste',()=>{const tasks=normalizeTasks([{...task,status:'confirmed'},{...task,id:'r2',status:'confirmed'}]);const p={...defaults,lat:task.lat,lon:task.lon,minRate:0,lunch:false};const result=optimize(reservationDay(tasks,date).confirmed,p,date);assert.equal(result.fixedConflict,true);assert.equal(result.plans.length,0);assert.equal(reservations(tasks).length,2);});
