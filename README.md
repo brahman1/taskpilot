@@ -2,7 +2,11 @@
 
 ## Version publique Cloudflare
 
-Le dépôt contient désormais le serveur local Windows et une version Cloudflare Workers indépendante du PC. Le guide [CLOUDFLARE-DEPLOY.md](CLOUDFLARE-DEPLOY.md) décrit les secrets, domaines et étapes de publication sur `task-pilot.net`. Les comptes cloud sont chiffrés et isolés ; les calculs de transport, associations du compagnon et e-mails en attente utilisent un stockage persistant. `npm run build` prépare uniquement le frontend public ; `npm run test:cloud` exécute huit tests d'intégration workerd, en complément des 91 tests existants. Le compagnon 2.1.0 permet de choisir le site public ou le serveur local. La mise en ligne et les parcours Google/Resend réels demandent encore l'autorisation Cloudflare et la configuration des fournisseurs.
+La version Cloudflare Workers est déployée sur [task-pilot.net](https://task-pilot.net), avec redirection de `www`. Les secrets de chiffrement et PRIM/SNCF sont configurés côté serveur. Les inscriptions par e-mail restent fermées jusqu'à l'activation de Resend ; Google reste indisponible jusqu'à la configuration du client OAuth public. Aucun compte local n'a été transféré.
+
+Le guide [CLOUDFLARE-DEPLOY.md](CLOUDFLARE-DEPLOY.md) décrit les secrets, domaines et étapes de publication. Les comptes cloud sont chiffrés et isolés ; les calculs de transport, associations du compagnon et e-mails en attente utilisent un stockage persistant. `npm run build` prépare uniquement le frontend public ; `npm run test:cloud` exécute huit tests d'intégration workerd, en complément des 91 tests existants. Le compagnon 2.1.0 permet de choisir le site public ou le serveur local. GitHub Actions vérifie le code ; la publication automatique depuis GitHub demande encore la connexion de l'intégration Builds Cloudflare au dépôt.
+
+Les sections suivantes décrivent le fonctionnement du **serveur local Windows**. Pour la version hébergée, suivre le guide Cloudflare.
 
 Application locale en français pour organiser des missions avec marges, pauses, revenus et trajets. Les exemples Paris/Lyon sont fictifs. Les propositions locales ne sont pas des attributions Taskrabbit.
 

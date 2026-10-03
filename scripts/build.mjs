@@ -14,6 +14,7 @@ await writeFile(path.join(output,'index.html'),page);
 for(const file of ['app.mjs','offers-ui.mjs','account-client.mjs','email-account-client.mjs','account-storage.mjs','transit-ui.mjs']){
  let text=await readFile(path.join(output,file),'utf8');
  text=text.replaceAll('Serveur local indisponible.','Service indisponible. Réessayez.').replaceAll('le serveur local','le service TaskPilot').replaceAll('serveur local','service TaskPilot').replaceAll('redémarrez le service TaskPilot','réessayez dans quelques instants').replaceAll('liste locale','liste TaskPilot').replaceAll('Mission enregistrée localement.','Mission enregistrée dans votre compte.').replaceAll('Sur Windows, la clé est sauvegardée avec la protection du compte Windows.','Votre clé est chiffrée côté serveur et reste propre à votre compte. Effacer votre clé personnelle rétablit le fournisseur de la plateforme, s’il est configuré.');
+ text=text.replaceAll('Mode local : l’envoi des e-mails de vérification et de récupération reste à configurer.','Les inscriptions par e-mail ouvriront après activation du service de vérification et de récupération de compte.');
  await writeFile(path.join(output,file),text);
 }
 await appendFile(path.join(output,'style.css'),'\n.public-site #googleSetupLink,.public-site #emailSetupLink{display:none!important}\n');
