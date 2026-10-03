@@ -2,7 +2,7 @@
 
 ## Version publique Cloudflare
 
-La version Cloudflare Workers est déployée sur [task-pilot.net](https://task-pilot.net), avec redirection de `www`. Les secrets de chiffrement et PRIM/SNCF sont configurés côté serveur. Les inscriptions par e-mail restent fermées jusqu'à l'activation de Resend ; Google reste indisponible jusqu'à la configuration du client OAuth public. Aucun compte local n'a été transféré.
+La version Cloudflare Workers est déployée sur [task-pilot.net](https://task-pilot.net), avec redirection de `www`. Les secrets de chiffrement, PRIM/SNCF et Resend sont configurés côté serveur. Le domaine d'envoi `mail.task-pilot.net` est vérifié, avec TLS obligatoire. Les inscriptions par e-mail sont ouvertes et exigent la vérification de l'adresse ; Resend confirme la livraison d'un e-mail réel de test. Le parcours complet de création de compte et de récupération reste à vérifier avec un utilisateur réel. Google reste indisponible jusqu'à la configuration du client OAuth public. Aucun compte local n'a été transféré.
 
 Le guide [CLOUDFLARE-DEPLOY.md](CLOUDFLARE-DEPLOY.md) décrit les secrets, domaines et étapes de publication. Les comptes cloud sont chiffrés et isolés ; les calculs de transport, associations du compagnon et e-mails en attente utilisent un stockage persistant. `npm run build` prépare uniquement le frontend public ; `npm run test:cloud` exécute huit tests d'intégration workerd, en complément des 91 tests existants. Le compagnon 2.1.0 permet de choisir le site public ou le serveur local. GitHub Actions vérifie le code ; la publication automatique depuis GitHub demande encore la connexion de l'intégration Builds Cloudflare au dépôt.
 
