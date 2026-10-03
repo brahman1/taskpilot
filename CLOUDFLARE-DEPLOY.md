@@ -17,7 +17,7 @@ Les tests cloud fonctionnent dans le moteur workerd, avec Resend et PRIM simulé
 Utiliser le compte qui possède task-pilot.net. Éviter une clé globale Cloudflare.
 
 ```powershell
-npx wrangler login --scopes account:read user:read workers:write workers_routes:write workers_scripts:write zone:read ssl_certs:write offline_access
+npx wrangler login --scopes account:read user:read workers:write workers_routes:write workers_scripts:write zone:read ssl_certs:write
 npx wrangler whoami
 ```
 
