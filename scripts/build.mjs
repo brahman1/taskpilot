@@ -3,7 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(fileURLToPath(new URL('../',import.meta.url))),output=path.join(root,'public');
 // An explicit frontend allowlist prevents backend source, tests, OAuth config and vaults leaking.
-const files=['index.html','style.css','journey.css','account-client.mjs','account-storage.mjs','email-account-client.mjs','app.mjs','model.mjs','workdays.mjs','department-data.mjs','department-list.json','departments.json','journey-view.mjs','line-palette.mjs','offers-ui.mjs','offers.mjs','request-queue.mjs','reservations.mjs','road-routes.mjs','transit-core.mjs','transit-ui.mjs','zone-model.mjs','zones.mjs'];
+const files=['index.html','presentation.html','confidentialite.html','conditions.html','legal.css','style.css','journey.css','account-client.mjs','account-storage.mjs','email-account-client.mjs','app.mjs','model.mjs','workdays.mjs','department-data.mjs','department-list.json','departments.json','journey-view.mjs','line-palette.mjs','offers-ui.mjs','offers.mjs','request-queue.mjs','reservations.mjs','road-routes.mjs','transit-core.mjs','transit-ui.mjs','zone-model.mjs','zones.mjs'];
 if(path.dirname(output)!==root||path.basename(output)!=='public')throw Error('Chemin de construction invalide.');
 await rm(output,{recursive:true,force:true});await mkdir(output,{recursive:true});
 for(const file of files)await copyFile(path.join(root,file),path.join(output,file));
