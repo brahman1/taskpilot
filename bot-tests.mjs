@@ -3,13 +3,23 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults,tomorrow} from './model.mjs';
 import {freeBudget,reserveBrowser,releaseBrowser,botSettings,prepareBotOffers,safeGeocode,chooseBotTask,sameOffer,botEdges} from './bot-policy.mjs';
-import {browserSession,requestOffer} from './cloud/portal-browser.mjs';
+import {browserSession,requestOffer,readBoard} from './cloud/portal-browser.mjs';
 import {createAccountCore} from './account-core.mjs';
 import {Readable} from 'node:stream';
 const p={...defaults,workDays:[1,2,3,4,5,6,7],lunch:false,returnHome:false,minRate:0,minPay:0,overrun:0,zoneMode:'all',maxPending:2},date=tomorrow();
 const task={id:'1001',date,time:'09:00',duration:60,pay:80,address:'12 rue Test, 69001',lat:45.764,lon:4.8357,brand:'IKEA',status:'available'};
 const monitoring={enabled:true,mode:'all'},context={email:'owner@example.test',monitoring,state:{'taskpilot-v1':JSON.stringify({prefs:p,tasks:[]})}};
 const leg={available:true,minutes:10,km:1,provider:'ign',mode:'car',signature:JSON.stringify(['car',p.lat,p.lon,task.lat,task.lon]),fetchedAt:Date.now()};
+test('Portail réel : les références IKEA et quantités Homary ne deviennent pas des montants',()=>{
+ const previous=globalThis.document;
+ try{for(const [description,price,expected]of [['2x MALM cadre lit coffre - 204.048.06','€137.49',137.49],['1 x Montage - Homary - 3','€53.25',53.25],['Référence 703.015.37','51,52 €',51.52]]){
+  const card={innerText:'12 Oct 2026 11:00\nIKEA\nParis\nRue Test\n75001\nDuration1:00\n'+description+'\n'+price+'\nAfficher les détails',querySelectorAll:()=>[anchor]};
+  const anchor={id:'task_0_single_task_link',href:'https://taskrabbitlimited.outsystemsenterprise.com/TaskPortal/task_page?taskid=1278551'};
+  const gen={innerText:'IKEA\nParis\nRue Test\n75001\nDuration1:00',parentElement:card},scope={innerText:description};
+  globalThis.document={querySelectorAll:()=>[anchor],getElementById:id=>id.endsWith('geninfo')?gen:scope};
+  const [offer]=readBoard();assert.equal(offer.pay,expected);assert.ok(Number.isFinite(offer.pay));assert.equal(offer.address,'Rue Test, 75001');
+ }}finally{if(previous===undefined)delete globalThis.document;else globalThis.document=previous;}
+});
 test('Bot gratuit : budget partagé, lancements espacés et aucun dépassement',()=>{const now=Date.parse('2026-10-03T11:00:00Z');let b=reserveBrowser(null,now);assert.throws(()=>reserveBrowser(b,now+19999),/launch-spacing/);for(let i=1;i<5;i++)b=reserveBrowser(b,now+i*20000);assert.equal(b.used,450);assert.throws(()=>reserveBrowser(b,now+100000),/quota/);assert.equal(releaseBrowser(b,12,false,now).used,450);assert.equal(releaseBrowser(b,12,true,now).used,372);});
 test('Bot gratuit : remise à zéro UTC et aucune restitution traversant minuit',()=>{const now=Date.parse('2026-10-03T23:59:55Z'),b=reserveBrowser(null,now);assert.equal(freeBudget(b,now+10000).used,0);assert.equal(releaseBrowser(b,3,true,now+10000).used,90);});
 test('Bot : adresse de test, pause, jours off et vélo refusés avant consultation',()=>{assert.throws(()=>botSettings({...context,email:'memmoudkamel01@gmail.com'}));assert.throws(()=>botSettings({...context,monitoring:{enabled:false}}));for(const changes of [{workDays:[]},{mobility:'bike'},{maxPending:0}])assert.throws(()=>botSettings({...context,state:{'taskpilot-v1':JSON.stringify({prefs:{...p,...changes}})}}));});
