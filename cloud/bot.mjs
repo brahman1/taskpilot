@@ -49,7 +49,9 @@ export class BookingCoordinator extends DurableObject {
    if(job.phase!=='capture'&&context.revision!==job.revision)throw Error('Vos critères ou missions ont changé : contrôle reporté.');
    if(job.phase==='capture'){
     const offers=await this.browse(browser=>captureOffers(browser,context.email));if(!offers.length)throw Error('Aucune offre lisible. Les missions précédentes sont conservées.');
-    Object.assign(job,prepareBotOffers(context,offers),{revision:context.revision,phase:'geocode',index:0});
+    Object.assign(job,prepareBotOffers(context,offers,{allowLarge:true}),{revision:context.revision,phase:'geocode',index:0,seenAt:Date.now(),offerCount:offers.length});
+    const synced=await this.account('offers',{ownerId:job.ownerId,revision:job.revision,tasks:job.tasks,matrix:job.saved.matrix||{},transitMatrix:job.saved.transitMatrix||{},seenAt:job.seenAt,offerCount:job.offerCount});job.revision=synced.revision;
+    if(job.eligible.length>20)throw Error(offers.length+' offres enregistrées dans votre compte. Plus de 20 candidates : précisez vos critères avant un nouvel essai.');
     this.note(job.ownerId,offers.length+' offres reçues. Vérification des adresses et du planning.');
    }else if(job.phase==='geocode'){
     const task=job.eligible[job.index++];
@@ -68,7 +70,7 @@ export class BookingCoordinator extends DurableObject {
      }else{const key=edge.from.id+'>'+edge.to.id;try{const leg=await roadJourney(edge.from,edge.to,job.p.mobility);leg.minutes+=10;job.matrix[key]=leg;}catch{job.matrix[key]={available:false,minutes:0,km:0,provider:'ign',mode:job.p.mobility,fetchedAt:Date.now()};}}
      job.index++;
     }else{
-     const updated=await this.account('offers',{ownerId:job.ownerId,revision:job.revision,tasks:job.tasks,matrix:job.matrix,transitMatrix:job.transitMatrix});job.revision=updated.revision;
+     const updated=await this.account('offers',{ownerId:job.ownerId,revision:job.revision,tasks:job.tasks,matrix:job.matrix,transitMatrix:job.transitMatrix,seenAt:job.seenAt,offerCount:job.offerCount});job.revision=updated.revision;
      const task=chooseBotTask(job.tasks,job.p,job.date,{...job.matrix,...job.transitMatrix},this.data.claims);
      if(!task){this.note(job.ownerId,'Contrôle terminé : aucune nouvelle mission avec un planning compatible et des trajets calculés.');this.data.job=null;}
      else{job.task=task;job.phase='request';}

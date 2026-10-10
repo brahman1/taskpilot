@@ -28,7 +28,9 @@ export class AccountAuthority extends DurableObject {
     this.outbox[id]={...message,expiresAt:Date.now()+(message.purpose==='reset'?15:60)*60000,attempts:0,nextAttempt:Date.now()};
     await this.outboxVault.save(this.outbox);await this.schedule();return {id};
    }};
-   this.accounts=await createAccountCore({storage:this.vault,mailer,public:true,automationAvailable:env.TASKRABBIT_AUTOMATION_APPROVED==='true',pilotFor:user=>privatePilot(env.TASKPILOT_PILOT,user),allowedOrigins:[this.origin],googleConfig:{clientId:env.GOOGLE_CLIENT_ID||'',clientSecret:env.GOOGLE_CLIENT_SECRET||''},googleOptions:{pending:this.pending,publicOrigin:this.origin},mailCooldowns:this.cooldowns,rateLimiter:req=>this.rateLimit(req),onMailError:()=>console.warn('Impossible de placer un e-mail dans la file sécurisée.')});
+   let pilotSetup;try{pilotSetup=JSON.parse(env.TASKPILOT_PILOT||'null');}catch{}
+   this.accounts=await createAccountCore({storage:this.vault,mailer,public:true,pilotSetup,automationAvailable:env.TASKRABBIT_AUTOMATION_APPROVED==='true',pilotFor:user=>privatePilot(env.TASKPILOT_PILOT,user),allowedOrigins:[this.origin],googleConfig:{clientId:env.GOOGLE_CLIENT_ID||'',clientSecret:env.GOOGLE_CLIENT_SECRET||''},googleOptions:{pending:this.pending,publicOrigin:this.origin},mailCooldowns:this.cooldowns,rateLimiter:req=>this.rateLimit(req),onMailError:()=>console.warn('Impossible de placer un e-mail dans la file sécurisée.')});
+   await this.accounts.configurePilot();
    if(Object.keys(this.outbox).length&&await ctx.storage.getAlarm()===null)await this.schedule();
   });
  }
@@ -48,12 +50,13 @@ export class AccountAuthority extends DurableObject {
   if(new URL(request.url).origin==='https://taskpilot.internal'&&new URL(request.url).pathname.startsWith('/bot/')){
    if(this.env.TASKRABBIT_AUTOMATION_APPROVED!=='true'&&!this.env.TASKPILOT_PILOT)throw fail('L’autorisation Taskrabbit doit être configurée par le propriétaire.',403);
    const action=new URL(request.url).pathname.slice(5),data=request.method==='POST'?await readJson(request):{};
+   if(action==='pilot-report')return json(this.accounts.pilotReport());
    if(action==='users')return json({users:this.accounts.botUsers()});
    const context=this.accounts.botContext(data.ownerId,action==='finish');if(!context)throw fail('Demandes automatiques désactivées.',409);
    if(action==='context')return json(context);
    if(action==='offers'){
     if(data.revision!==context.revision)throw fail('Critères modifiés : calcul à recommencer.',409);
-    const current=JSON.parse(context.state['taskpilot-v1']);current.tasks=normalizeTasks(data.tasks);current.matrix=data.matrix||{};current.transitMatrix=data.transitMatrix||{};
+    const current=JSON.parse(context.state['taskpilot-v1']);current.tasks=normalizeTasks(data.tasks);current.isDemo=false;if(data.seenAt){current.sourceSeenAt=data.seenAt;current.sourceOfferCount=data.offerCount;}current.matrix=data.matrix||{};current.transitMatrix=data.transitMatrix||{};
     const revision=await this.accounts.botSave(context.id,context.revision,{...context.state,'taskpilot-v1':JSON.stringify(current)});return json({revision});
    }
    if(action==='begin'){
@@ -133,7 +136,7 @@ export class AccountAuthority extends DurableObject {
    this.portalIndex[tokenHash]=ownerId;await vault.save(record);await this.portalIndexVault.save(this.portalIndex);return json({token});
   }
   const paired=!!record&&record.expiresAt>Date.now();
-  if(url.pathname==='/api/portal/status'&&request.method==='GET')return json({paired,revision:record?.revision||0,lastSeenAt:record?.snapshot?.seenAt,count:record?.snapshot?.tasks.length||0});
+  if(url.pathname==='/api/portal/status'&&request.method==='GET'){const server=this.accounts.botSnapshotInfo(ownerId),useServer=(server.seenAt||0)>(record?.snapshot?.seenAt||0);return json({paired,source:useServer?'server':'companion',revision:record?.revision||0,lastSeenAt:useServer?server.seenAt:record?.snapshot?.seenAt,count:useServer?server.count:record?.snapshot?.tasks.length||0});}
   if(url.pathname==='/api/portal/snapshot'&&request.method==='GET')return json({revision:record?.revision||0,snapshot:paired&&record.revision>Number(url.searchParams.get('after')||0)?record.snapshot:null});
   throw fail('Route inconnue.',404);
  }

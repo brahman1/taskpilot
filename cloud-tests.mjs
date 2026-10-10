@@ -164,7 +164,10 @@ test('Cloud essai privé : isolation, tentative unique et persistance sans autor
  const ns=await mf.getDurableObjectNamespace('ACCOUNTS'),stub=ns.get(ns.idFromName('taskpilot-accounts-v1'));
  const internal=async(action,body)=>{const response=await stub.fetch('https://taskpilot.internal/bot/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:response.status,data:await response.json()};};
  const ctx=(await internal('context',{ownerId:a.user.id})).data;
- assert.equal((await internal('begin',{ownerId:a.user.id,revision:ctx.revision,taskId:saved.tasks[0].id})).status,200);
+ const seenAt=Date.now(),synced=await internal('offers',{ownerId:a.user.id,revision:ctx.revision,tasks:saved.tasks,matrix:saved.matrix,seenAt,offerCount:1});assert.equal(synced.status,200);
+ const received=(await request('/api/portal/status',{cookie:a.cookie})).data;assert.equal(received.source,'server');assert.equal(received.lastSeenAt,seenAt);assert.equal(received.count,1);
+ const stored=JSON.parse((await request('/api/account/state',{cookie:a.cookie})).data.state['taskpilot-v1']);assert.equal(stored.isDemo,false);assert.equal(stored.tasks[0].id,saved.tasks[0].id);
+ assert.equal((await internal('begin',{ownerId:a.user.id,revision:synced.data.revision,taskId:saved.tasks[0].id})).status,200);
  assert.equal((await internal('context',{ownerId:a.user.id})).status,409);
  assert.equal((await internal('finish',{ownerId:a.user.id,taskId:saved.tasks[0].id,outcome:'uncertain'})).status,200);
  await mf.dispose();mf=createRuntime(bindings);

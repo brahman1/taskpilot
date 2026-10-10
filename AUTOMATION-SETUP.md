@@ -1,6 +1,6 @@
 # Bot autonome TaskPilot : état de livraison
 
-Le code serveur de consultation, de sélection et d’envoi est intégré à Cloudflare. L’ouverture générale reste désactivée. Un essai personnel distinct peut être configuré pour un seul compte, une date de contrôle, une date de missions et une tentative maximum. Aucun envoi réel n’a été effectué pendant les tests automatisés.
+Le code serveur de consultation, de sélection et d’envoi est intégré à Cloudflare. L’ouverture générale reste désactivée. Un essai personnel distinct peut être configuré pour un seul compte, une date de contrôle, une date de missions et une ou deux tentatives maximum. Aucun envoi réel n’a été effectué pendant les tests automatisés.
 
 ## Condition d’activation
 
@@ -12,7 +12,11 @@ L’adresse fournie pendant le développement reste protégée par défaut. Seul
 
 ## Essai personnel privé
 
-Le secret Worker `TASKPILOT_PILOT` contient un JSON `{id, ownerEmail, taskrabbitEmail, runDate, targetDate, expiresAt, maxRequests: 1}`. Aucun identifiant personnel n’est enregistré dans les sources ou les ressources publiques. Cet essai ne représente pas un accord de Taskrabbit et ne modifie pas le secret d’autorisation générale.
+Le secret Worker `TASKPILOT_PILOT` contient un JSON `{id, ownerEmail, taskrabbitEmail, runDate, targetDate, expiresAt, maxRequests}` ; `maxRequests` est strictement limité à 1 ou 2. Aucun identifiant personnel n’est enregistré dans les sources ou les ressources publiques. Cet essai ne représente pas un accord de Taskrabbit et ne modifie pas le secret d’autorisation générale.
+
+Le propriétaire peut ajouter `arm`, `prefs` et `monitoring` pour préparer un nouvel essai explicitement demandé. Cette configuration s’applique une seule fois par identifiant d’essai, exclusivement au compte correspondant et avec adresse Taskrabbit vérifiée. Elle ne crée pas de consentement contractuel : les demandes ne sont activées automatiquement que si un consentement existant correspond toujours à cette adresse. Une pause ultérieure reste respectée après redémarrage. L’action interne `pilot-report` permet au propriétaire de vérifier le compte configuré via une liaison Worker ; elle n’est pas exposée publiquement.
+
+Les offres sont enregistrées dès la capture dans le compte, avant le géocodage et les calculs. Elles restent consultables si le calcul échoue. La date de réception et le nombre d’offres remontent à l’interface ; une ancienne liste du compagnon ne remplace pas une liste serveur plus récente. La réception serveur dans le navigateur n’écrit pas à nouveau l’état pendant un calcul en cours.
 
 Le compte TaskPilot doit être vérifié et correspondre à `ownerEmail`. L’adresse Taskrabbit doit correspondre à `taskrabbitEmail` et être vérifiée séparément si nécessaire. L’utilisateur enregistre ses horaires et accepte les conditions avant d’activer les demandes. La consultation est limitée à `runDate` en heure de Paris ; le planning vise explicitement `targetDate`, dont les jours travaillés et tous les critères restent applicables. La date des contrôles peut être un jour de repos.
 

@@ -8,7 +8,7 @@ export function setupOffers({getTasks,setTasks,onSnapshot}){let watching=true,re
  document.querySelector('#copyPair').onclick=()=>navigator.clipboard.writeText(document.querySelector('#pairCode').value).then(()=>status.textContent='Code copié. Collez-le dans le compagnon.');
  async function poll(){if(!watching)return;try{
   const r=await fetch('/api/portal/status');if(!r.ok)throw Error('Connexion Taskrabbit indisponible. Réessayez.');const info=await r.json();window.dispatchEvent(new CustomEvent('taskpilot-portal-status',{detail:info}));
-  if(info.paired){if(info.revision<revision)revision=0;const response=await fetch('/api/portal/snapshot?after='+revision);if(!response.ok)throw Error('Synchronisation indisponible.');const data=await response.json();
+  if(info.paired&&info.source!=='server'){if(info.revision<revision)revision=0;const response=await fetch('/api/portal/snapshot?after='+revision);if(!response.ok)throw Error('Synchronisation indisponible.');const data=await response.json();
    if(data.snapshot){revision=data.revision;const previous=new Set(getTasks().map(t=>t.id));onSnapshot(data.snapshot);const count=data.snapshot.tasks.filter(t=>!previous.has(t.id)).length;if(count&&alerts&&'Notification' in window&&Notification.permission==='granted')new Notification('TaskPilot',{body:count+' nouvelle(s) offre(s) reçue(s).'});if(getTasks().some(t=>t.lat==null||t.lon==null))document.querySelector('#geocodeAll').click();}
   }
   status.textContent=info.lastSeenAt?'Dernière synchronisation : '+new Date(info.lastSeenAt).toLocaleTimeString('fr-FR',{timeZone:'Europe/Paris'})+' · '+info.count+' offres visibles.':'Connectez votre portail dans l’onglet Taskrabbit pour recevoir les offres.';

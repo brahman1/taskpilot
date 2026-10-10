@@ -28,11 +28,11 @@ export function botSettings(context,now=Date.now()){
  if(p.mobility==='bike')throw Error('Le calcul de trajets vélo doit être connecté avant les demandes automatiques.');
  return {p,date,saved,tasks:normalizeTasks(saved.tasks||[])};
 }
-export function prepareBotOffers(context,incoming){
+export function prepareBotOffers(context,incoming,{allowLarge=false}={}){
  const settings=botSettings(context),merged=mergeOffers(settings.tasks,normalizeTasks(incoming).map(t=>({...t,status:'available'})),{complete:true});
  // A missing pending mission still occupies its slot; disappearance never means cancellation.
  const eligible=merged.tasks.filter(t=>t.date===settings.date&&!reasons(t,settings.p,settings.date).filter(r=>r!=='Coordonnées à renseigner').length);
- if(eligible.length>20)throw Error('Plus de 20 missions correspondent : précisez votre zone ou vos critères.');
+ if(eligible.length>20&&!allowLarge)throw Error('Plus de 20 missions correspondent : précisez votre zone ou vos critères.');
  return {...settings,tasks:merged.tasks,eligible};
 }
 export function safeGeocode(address,options){
