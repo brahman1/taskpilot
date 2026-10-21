@@ -64,7 +64,7 @@ test('Essai privé : identité serveur, dates, propriété et expiration',()=>{
  const now=Date.parse('2026-10-04T09:00:00Z'),config={id:'test-pilot',ownerEmail:'login@example.test',taskrabbitEmail:'rabbit@example.test',runDate:'2026-10-04',targetDate:'2026-10-05',expiresAt:'2026-10-04T16:00:00Z',maxRequests:1},raw=JSON.stringify(config),user={email:config.ownerEmail,taskrabbitEmail:config.taskrabbitEmail,emailVerified:true};
  assert.equal(privatePilot(raw,user,now).targetDate,'2026-10-05');
  for(const change of [{email:'other@example.test'},{taskrabbitEmail:'other@example.test'},{emailVerified:false}])assert.equal(privatePilot(raw,{...user,...change},now),null);
- assert.equal(privatePilot(raw,user,Date.parse(config.expiresAt)),null);assert.equal(privatePilot('invalid',user,now),null);assert.equal(privatePilot(JSON.stringify({...config,maxRequests:3}),user,now),null);
+ assert.equal(privatePilot(raw,user,Date.parse(config.expiresAt)),null);assert.equal(privatePilot('invalid',user,now),null);for(const maxRequests of [0,5,-1,1.5,'4'])assert.equal(privatePilot(JSON.stringify({...config,maxRequests}),user,now),null);
  assert.equal(parisDay(Date.parse('2026-10-03T22:30:00Z')),'2026-10-04');
  const pilot=privatePilot(raw,user,now);assert.equal(botSettings({...context,email:'memmoudkamel01@gmail.com',pilot},now).date,'2026-10-05');
  assert.throws(()=>botSettings({...context,pilot},now-86400000));assert.throws(()=>botSettings({...context,pilot:{...pilot,used:1}},now));
@@ -84,8 +84,8 @@ test('Essai privé : vérification obligatoire, une seule demande, pause et repr
  const other=await accountFixture({approved:false,pilotFor:policy,taskrabbitEmail:'login@example.test'});assert.equal((await other.call('automation',{enabled:true,acceptTerms:true})).status,409);
 });
 
-test('Nouvel essai : deux demandes au maximum, critères et horaires persistants, pause respectée',async()=>{
- const setup={id:'second',ownerEmail:'login@example.test',taskrabbitEmail:'login@example.test',runDate:'2026-10-11',targetDate:'2026-10-12',expiresAt:'2026-10-11T16:00:00Z',maxRequests:2,arm:true,prefs:{origin:'Paris (75001)',lat:48.8566,lon:2.3522,zoneMode:'radius',radiusKm:30,mobility:'transit',start:'09:00',end:'19:00',gap:20,overrun:20,lunch:true,lunchStart:'12:30',lunchDuration:45,maxPending:2,workDays:[1,2,3,4,5,6]},monitoring:{enabled:true,mode:'scheduled',times:['11:00','15:00'],beforeMinutes:0,afterMinutes:20}};
+test('Nouvel essai : quatre demandes au maximum, critères et horaires persistants, pause respectée',async()=>{
+ const setup={id:'second',ownerEmail:'login@example.test',taskrabbitEmail:'login@example.test',runDate:'2026-10-11',targetDate:'2026-10-12',expiresAt:'2026-10-11T16:00:00Z',maxRequests:4,arm:true,prefs:{origin:'Paris (75001)',lat:48.8566,lon:2.3522,zoneMode:'radius',radiusKm:30,mobility:'transit',start:'09:00',end:'19:00',gap:20,overrun:20,lunch:true,lunchStart:'12:30',lunchDuration:45,maxPending:4,workDays:[1,2,3,4,5,6]},monitoring:{enabled:true,mode:'scheduled',times:['11:00','15:00'],beforeMinutes:0,afterMinutes:20}};
  const policy=u=>privatePilot(JSON.stringify(setup),u,Date.parse('2026-10-10T12:00:00Z'));
  const f=await accountFixture({approved:false,pilotFor:policy,pilotSetup:setup,taskrabbitEmail:setup.taskrabbitEmail});
  await f.core.configurePilot();assert.equal(f.core.pilotReport().automationEnabled,false);
@@ -93,5 +93,5 @@ test('Nouvel essai : deux demandes au maximum, critères et horaires persistants
  const ctx=f.core.botContext(report.id);assert.equal(botSettings(ctx,Date.parse('2026-10-11T09:00:00Z')).date,'2026-10-12');assert.throws(()=>botSettings(ctx,Date.parse('2026-10-11T08:59:00Z')));assert.throws(()=>botSettings(ctx,Date.parse('2026-10-10T09:00:00Z')));assert.equal(botSettings(ctx,Date.parse('2026-10-11T13:00:00Z')).date,'2026-10-12');
  await f.core.botConsume(report.id);assert.equal(f.core.botPolicy(report.id).pilot.used,1);assert.ok(f.core.botContext(report.id));
  await f.call('automation',{enabled:false});await f.core.configurePilot();assert.equal(f.core.pilotReport().automationEnabled,false);
- await f.call('automation',{enabled:true,acceptTerms:true});await f.core.botConsume(report.id);assert.equal(f.core.botPolicy(report.id).pilot.used,2);assert.equal(f.core.botContext(report.id),null);await assert.rejects(f.core.botConsume(report.id));
+ await f.call('automation',{enabled:true,acceptTerms:true});assert.equal(report.prefs.maxPending,4);for(let count=2;count<=4;count++){await f.core.botConsume(report.id);assert.equal(f.core.botPolicy(report.id).pilot.used,count);if(count<4)assert.ok(f.core.botContext(report.id));}assert.equal(f.core.botContext(report.id),null);await assert.rejects(f.core.botConsume(report.id));
 });
