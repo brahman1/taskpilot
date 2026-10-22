@@ -50,7 +50,7 @@ export class AccountAuthority extends DurableObject {
   if(new URL(request.url).origin==='https://taskpilot.internal'&&new URL(request.url).pathname.startsWith('/bot/')){
    if(this.env.TASKRABBIT_AUTOMATION_APPROVED!=='true'&&!this.env.TASKPILOT_PILOT)throw fail('L’autorisation Taskrabbit doit être configurée par le propriétaire.',403);
    const action=new URL(request.url).pathname.slice(5),data=request.method==='POST'?await readJson(request):{};
-   if(action==='pilot-report')return json(this.accounts.pilotReport());
+   if(action==='pilot-report')return json({...this.accounts.pilotReport(),diagnosticsVersion:2});
    if(action==='users')return json({users:this.accounts.botUsers()});
    const context=this.accounts.botContext(data.ownerId,action==='finish');if(!context)throw fail('Demandes automatiques désactivées.',409);
    if(action==='context')return json(context);

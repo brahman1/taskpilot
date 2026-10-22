@@ -14,7 +14,7 @@
     {"pattern": "task-pilot.net", "custom_domain": true},
     {"pattern": "www.task-pilot.net", "custom_domain": true}
   ],
-  "durable_objects": {"bindings": [
+  "durable_objects": {"code_update_strategy":{"mode":"immediate"},"bindings": [
     {"name": "ACCOUNTS", "class_name": "AccountAuthority"},
     {"name": "TRANSIT", "class_name": "TransitPlanner"},
     {"name": "BOT", "class_name": "BookingCoordinator"}

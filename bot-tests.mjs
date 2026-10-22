@@ -95,3 +95,10 @@ test('Nouvel essai : quatre demandes au maximum, critères et horaires persistan
  await f.call('automation',{enabled:false});await f.core.configurePilot();assert.equal(f.core.pilotReport().automationEnabled,false);
  await f.call('automation',{enabled:true,acceptTerms:true});assert.equal(report.prefs.maxPending,4);for(let count=2;count<=4;count++){await f.core.botConsume(report.id);assert.equal(f.core.botPolicy(report.id).pilot.used,count);if(count<4)assert.ok(f.core.botContext(report.id));}assert.equal(f.core.botContext(report.id),null);await assert.rejects(f.core.botConsume(report.id));
 });
+
+test('Diagnostic après expiration : même compte vérifié, lecture sans réactiver les demandes',async()=>{
+ const setup={id:'expired-report',ownerEmail:'login@example.test',taskrabbitEmail:'login@example.test',runDate:'2026-10-22',targetDate:'2026-10-23',expiresAt:'2026-10-22T10:00:00Z',maxRequests:4};
+ const f=await accountFixture({approved:false,pilotFor:()=>null,pilotSetup:setup,taskrabbitEmail:setup.taskrabbitEmail});
+ const report=f.core.pilotReport();assert.ok(report.id);assert.equal(report.ready,false);assert.equal(report.policy.available,false);assert.equal(report.trial.targetDate,'2026-10-23');assert.deepEqual(report.tasks,[]);assert.equal(f.core.botContext(report.id),null);assert.equal((await f.call('automation',{enabled:true,acceptTerms:true})).status,409);
+ const other=await accountFixture({approved:false,pilotFor:()=>null,pilotSetup:{...setup,ownerEmail:'other@example.test'},taskrabbitEmail:setup.taskrabbitEmail});assert.equal(other.core.pilotReport().id,undefined);
+});
