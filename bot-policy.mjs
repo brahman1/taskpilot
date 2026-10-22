@@ -1,4 +1,4 @@
-import {parisDay} from './pilot-policy.mjs';
+import {parisDay,trialDates} from './pilot-policy.mjs';
 import {defaults,validatePrefs,normalizeTasks,reasons,optimize,tomorrow,mins} from './model.mjs';
 import {monitoringActive} from './portal-reader/schedule.mjs';
 import {isWorkingDate} from './workdays.mjs';
@@ -17,22 +17,23 @@ export function releaseBrowser(budget,seconds,closed,now=Date.now()){
  if(!closed||budget.day!==utcDay(now))return budget;
  return {...budget,used:Math.max(0,budget.used-SESSION_RESERVE_SECONDS+Math.min(SESSION_RESERVE_SECONDS,Math.max(1,Math.ceil(seconds))))};
 }
-export function botSettings(context,now=Date.now()){
+export function botSettings(context,now=Date.now(),selectedDate){
  if(!context||context.email===protectedTestEmail&&!context.pilot||!monitoringActive(context.monitoring,now))throw Error('Surveillance en pause.');
  if(context.pilot&&(parisDay(now)!==context.pilot.runDate||now>=Date.parse(context.pilot.expiresAt)||context.pilot.used>=context.pilot.maxRequests))throw Error('Essai personnel hors créneau ou terminé.');
  const saved=JSON.parse(context.state?.['taskpilot-v1']||'{}');
  if(!saved.prefs||saved.isDemo)throw Error('Enregistrez des critères réels.');
- const p={...defaults,...saved.prefs};validatePrefs(p);const date=context.pilot?.targetDate||tomorrow();
- if(!isWorkingDate(date,p))throw Error('Demain est un jour de repos.');
+ const p={...defaults,...saved.prefs};validatePrefs(p);const dates=(context.pilot?trialDates(context.pilot):[tomorrow()]).filter(d=>isWorkingDate(d,p)),date=selectedDate||dates[0];
+ if(!dates.length)throw Error('Les dates de recherche sont des jours de repos.');
+ if(!dates.includes(date))throw Error('Date hors de la période autorisée ou jour de repos.');
  if(p.maxPending===0)throw Error('Le plafond des demandes en attente est à zéro.');
  if(p.mobility==='bike')throw Error('Le calcul de trajets vélo doit être connecté avant les demandes automatiques.');
- return {p,date,saved,tasks:normalizeTasks(saved.tasks||[])};
+ return {p,date,dates,saved,tasks:normalizeTasks(saved.tasks||[])};
 }
-export function prepareBotOffers(context,incoming,{allowLarge=false}={}){
- const settings=botSettings(context),merged=mergeOffers(settings.tasks,normalizeTasks(incoming).map(t=>({...t,status:'available'})),{complete:true});
+export function prepareBotOffers(context,incoming,{allowLarge=false,now=Date.now()}={}){
+ const settings=botSettings(context,now),merged=mergeOffers(settings.tasks,normalizeTasks(incoming).map(t=>({...t,status:'available'})),{complete:true});
  // A missing pending mission still occupies its slot; disappearance never means cancellation.
- const eligible=merged.tasks.filter(t=>t.date===settings.date&&!reasons(t,settings.p,settings.date).filter(r=>r!=='Coordonnées à renseigner').length);
- if(eligible.length>20&&!allowLarge)throw Error('Plus de 20 missions correspondent : précisez votre zone ou vos critères.');
+ const eligible=merged.tasks.filter(t=>settings.dates.includes(t.date)&&!reasons(t,settings.p,t.date).filter(r=>r!=='Coordonnées à renseigner').length);
+ if(settings.dates.some(date=>eligible.filter(t=>t.date===date).length>20)&&!allowLarge)throw Error('Plus de 20 missions correspondent sur une journée : précisez votre zone ou vos critères.');
  return {...settings,tasks:merged.tasks,eligible};
 }
 export function safeGeocode(address,options){

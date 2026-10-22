@@ -1,4 +1,4 @@
-import {privatePilot,parisDay} from './pilot-policy.mjs';
+import {privatePilot,parisDay,trialDates} from './pilot-policy.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {defaults,tomorrow} from './model.mjs';
@@ -101,4 +101,13 @@ test('Diagnostic après expiration : même compte vérifié, lecture sans réact
  const f=await accountFixture({approved:false,pilotFor:()=>null,pilotSetup:setup,taskrabbitEmail:setup.taskrabbitEmail});
  const report=f.core.pilotReport();assert.ok(report.id);assert.equal(report.ready,false);assert.equal(report.policy.available,false);assert.equal(report.trial.targetDate,'2026-10-23');assert.deepEqual(report.tasks,[]);assert.equal(f.core.botContext(report.id),null);assert.equal((await f.call('automation',{enabled:true,acceptTerms:true})).status,409);
  const other=await accountFixture({approved:false,pilotFor:()=>null,pilotSetup:{...setup,ownerEmail:'other@example.test'},taskrabbitEmail:setup.taskrabbitEmail});assert.equal(other.core.pilotReport().id,undefined);
+});
+
+test('Essai élargi : sept dates civiles, jours off exclus, petits paiements acceptés, borne stricte',()=>{
+ const user={email:'owner@example.test',taskrabbitEmail:context.email,emailVerified:true},setup={id:'wide',ownerEmail:user.email,taskrabbitEmail:user.taskrabbitEmail,runDate:'2026-10-23',targetDate:'2026-10-24',targetEndDate:'2026-10-30',expiresAt:'2026-10-23T10:00:00Z',maxRequests:4},now=Date.parse('2026-10-23T09:00:00Z');
+ const pilot=privatePilot(JSON.stringify(setup),user,now);assert.equal(trialDates(pilot).length,7);assert.equal(trialDates(pilot)[6],'2026-10-30');
+ for(const change of [{targetEndDate:'2026-10-31'},{targetEndDate:'2026-10-23'},{targetEndDate:'2026-02-30'},{targetDate:'2026-10-23'}])assert.equal(privatePilot(JSON.stringify({...setup,...change}),user,now),null);
+ const wide={...context,pilot,state:{'taskpilot-v1':JSON.stringify({prefs:{...p,workDays:[1,2,3,4,5,6],minPay:0,minRate:0},tasks:[]})}};
+ const settings=botSettings(wide,now);assert.deepEqual(settings.dates,['2026-10-24','2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30']);assert.equal(botSettings(wide,now,'2026-10-26').date,'2026-10-26');assert.throws(()=>botSettings(wide,now,'2026-10-25'));assert.throws(()=>botSettings(wide,now,'2026-10-31'));
+ const incoming=['2026-10-24','2026-10-25','2026-10-26','2026-10-31'].map((date,i)=>({...task,id:String(5000+i),date,pay:12}));const merged=prepareBotOffers(wide,incoming,{now});assert.deepEqual(merged.eligible.map(t=>t.date),['2026-10-24','2026-10-26']);
 });

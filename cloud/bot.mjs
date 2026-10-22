@@ -51,14 +51,14 @@ export class BookingCoordinator extends DurableObject {
     const offers=await this.browse(browser=>captureOffers(browser,context.email));if(!offers.length)throw Error('Aucune offre lisible. Les missions précédentes sont conservées.');
     Object.assign(job,prepareBotOffers(context,offers,{allowLarge:true}),{revision:context.revision,phase:'geocode',index:0,seenAt:Date.now(),offerCount:offers.length});
     const synced=await this.account('offers',{ownerId:job.ownerId,revision:job.revision,tasks:job.tasks,matrix:job.saved.matrix||{},transitMatrix:job.saved.transitMatrix||{},seenAt:job.seenAt,offerCount:job.offerCount});job.revision=synced.revision;
-    if(job.eligible.length>20)throw Error(offers.length+' offres enregistrées dans votre compte. Plus de 20 candidates : précisez vos critères avant un nouvel essai.');
+    if(job.eligible.length>140)throw Error(offers.length+' offres enregistrées dans votre compte. Plus de 140 adresses à vérifier : précisez vos critères avant un nouvel essai.');
     this.note(job.ownerId,offers.length+' offres reçues. Vérification des adresses et du planning.');
    }else if(job.phase==='geocode'){
     const task=job.eligible[job.index++];
     if(task){if(task.lat===null||task.lon===null){const point=safeGeocode(task.address,await geocodeAddress(task.address));if(point){Object.assign(task,{lat:point.lat,lon:point.lon,locationPrecision:point.type});Object.assign(job.tasks.find(t=>t.id===task.id),task);}}}
     else{
-     const candidates=job.tasks.filter(t=>!reasons(t,job.p,job.date).length),fixed=candidates.filter(t=>['pending','confirmed'].includes(t.status)),available=candidates.filter(t=>t.status==='available'&&!this.data.claims[t.id]).sort((a,b)=>b.pay/b.duration-a.pay/a.duration).slice(0,6);
-     job.edges=botEdges([...fixed,...available],job.p,job.date);job.index=0;job.matrix={};job.transitMatrix={};job.phase='routes';
+     const candidates=job.tasks.filter(t=>job.dates.includes(t.date)&&!reasons(t,job.p,t.date).length),fixed=candidates.filter(t=>['pending','confirmed'].includes(t.status)),available=candidates.filter(t=>t.status==='available'&&!this.data.claims[t.id]).sort((a,b)=>b.pay/b.duration-a.pay/a.duration).slice(0,6);
+     job.edges=job.dates.flatMap(date=>botEdges([...fixed,...available].filter(t=>t.date===date),job.p,date).map(edge=>({...edge,date})));job.index=0;job.matrix={};job.transitMatrix={};job.phase='routes';
     }
    }else if(job.phase==='routes'){
     const edge=job.edges[job.index];
@@ -66,12 +66,12 @@ export class BookingCoordinator extends DurableObject {
      const permit=await this.authority().fetch('https://taskpilot.internal/transit-permit');if(permit.status===429){await this.ctx.storage.setAlarm((await permit.json()).retryAt);return;}if(!permit.ok)throw Error('Calculateur indisponible.');
      if(job.p.mobility==='transit'){
       const token=job.p.transitProvider==='idfm'?this.env.PRIM_API_KEY:this.env.SNCF_API_KEY;if(!token)throw Error('Transport non configuré par la plateforme.');
-      const leg=await queryTransit({...edge,p:job.p,date:job.date,token,signal:AbortSignal.timeout(15000)});leg.fetchedAt=Date.now();job.transitMatrix[routeKey(edge.from,edge.to,job.p,job.date,edge)]=leg;
+      const leg=await queryTransit({...edge,p:job.p,date:edge.date,token,signal:AbortSignal.timeout(15000)});leg.fetchedAt=Date.now();job.transitMatrix[routeKey(edge.from,edge.to,job.p,edge.date,edge)]=leg;
      }else{const key=edge.from.id+'>'+edge.to.id;try{const leg=await roadJourney(edge.from,edge.to,job.p.mobility);leg.minutes+=10;job.matrix[key]=leg;}catch{job.matrix[key]={available:false,minutes:0,km:0,provider:'ign',mode:job.p.mobility,fetchedAt:Date.now()};}}
      job.index++;
     }else{
      const updated=await this.account('offers',{ownerId:job.ownerId,revision:job.revision,tasks:job.tasks,matrix:job.matrix,transitMatrix:job.transitMatrix,seenAt:job.seenAt,offerCount:job.offerCount});job.revision=updated.revision;
-     const task=chooseBotTask(job.tasks,job.p,job.date,{...job.matrix,...job.transitMatrix},this.data.claims);
+     const task=job.dates.map(date=>chooseBotTask(job.tasks,job.p,date,{...job.matrix,...job.transitMatrix},this.data.claims)).find(Boolean);
      if(!task){this.note(job.ownerId,'Contrôle terminé : aucune nouvelle mission avec un planning compatible et des trajets calculés.');this.data.job=null;}
      else{job.task=task;job.phase='request';}
     }
@@ -84,7 +84,7 @@ export class BookingCoordinator extends DurableObject {
      if(Date.now()-started>20000||this.data.job!==job||!this.approved())throw Error('Délai dépassé avant envoi.');
      // Claim globally before persisting the pending request. An interrupted operation stays held.
      this.data.claims[task.id]={ownerId:job.ownerId,at:Date.now(),state:'uncertain'};await this.save();
-     const updated=await this.account('begin',{ownerId:job.ownerId,revision:job.revision,taskId:task.id,claimed:{...this.data.claims,[task.id]:undefined}});job.revision=updated.revision;begun=true;
+     const updated=await this.account('begin',{ownerId:job.ownerId,revision:job.revision,taskId:task.id,date:task.date,claimed:{...this.data.claims,[task.id]:undefined}});job.revision=updated.revision;begun=true;
     },{personalPilot:!!context.pilot}));}catch(error){if(!begun)throw error;outcome='uncertain';}
     if(!begun)throw Error('La demande n’a pas été préparée.');this.data.claims[task.id].state=outcome;
     await this.account('finish',{ownerId:job.ownerId,taskId:task.id,outcome});

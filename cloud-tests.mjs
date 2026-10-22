@@ -174,3 +174,22 @@ test('Cloud essai privé : isolation, tentative unique et persistance sans autor
  const status=(await request('/api/bot/status',{cookie:a.cookie})).data;assert.equal(status.available,false);assert.equal(status.pilot.used,1);
  assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},a.cookie)).status,409);
 });
+test('Cloud essai élargi : contrôle de la date choisie et compteur partagé entre journées',async()=>{
+ const start=tomorrow(),offset=i=>new Date(Date.parse(start)+i*86400000).toISOString().slice(0,10),selectedDate=offset(2);
+ const config={id:'cloud-seven-days',ownerEmail:a.user.email,taskrabbitEmail:a.user.email,runDate:parisDay(),targetDate:start,targetEndDate:offset(6),expiresAt:new Date(Date.now()+86400000).toISOString(),maxRequests:4};
+ await mf.dispose();mf=createRuntime({TASKPILOT_PILOT:JSON.stringify(config)});
+ const p={...defaults,workDays:[1,2,3,4,5,6,7],zoneMode:'all',lunch:false,returnHome:false,minPay:0,minRate:0,maxPending:4,overrun:0};
+ const tasks=[{id:'8880001',date:start,time:'10:00',duration:30,pay:12,lat:p.lat,lon:p.lon,status:'available'},{id:'8880002',date:selectedDate,time:'10:00',duration:30,pay:12,lat:p.lat,lon:p.lon,status:'available'}];
+ const matrix=Object.fromEntries(tasks.map(t=>['home>'+t.id,{provider:'ign',mode:'car',available:true,minutes:10,km:1,signature:JSON.stringify(['car',p.lat,p.lon,t.lat,t.lon]),fetchedAt:Date.now()}]));
+ const state=(await request('/api/account/state',{cookie:a.cookie})).data;
+ await request('/api/account/state',{method:'PUT',cookie:a.cookie,body:{revision:state.revision,state:{'taskpilot-v1':JSON.stringify({prefs:p,tasks,matrix})}}});
+ assert.equal((await post('/api/account/automation',{enabled:true,acceptTerms:true},a.cookie)).status,200);
+ const ns=await mf.getDurableObjectNamespace('ACCOUNTS'),stub=ns.get(ns.idFromName('taskpilot-accounts-v1'));
+ const internal=async(action,body)=>{const r=await stub.fetch('https://taskpilot.internal/bot/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});return {status:r.status,data:await r.json()};};
+ let ctx=(await internal('context',{ownerId:a.user.id})).data;
+ assert.equal((await internal('begin',{ownerId:a.user.id,revision:ctx.revision,taskId:tasks[1].id,date:offset(7)})).status,409);
+ assert.equal((await internal('begin',{ownerId:a.user.id,revision:ctx.revision,taskId:tasks[1].id,date:selectedDate})).status,200);
+ ctx=(await internal('context',{ownerId:a.user.id})).data;assert.equal(ctx.pilot.used,1);
+ assert.equal((await internal('begin',{ownerId:a.user.id,revision:ctx.revision,taskId:tasks[0].id,date:start})).status,200);
+ ctx=(await internal('context',{ownerId:a.user.id})).data;assert.equal(ctx.pilot.used,2);assert.equal(ctx.pilot.targetEndDate,offset(6));
+});

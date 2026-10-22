@@ -61,7 +61,8 @@ export class AccountAuthority extends DurableObject {
    }
    if(action==='begin'){
     if(data.revision!==context.revision)throw fail('Critères ou missions modifiés.',409);
-    const {p,date,saved,tasks}=botSettings(context),task=chooseBotTask(tasks,p,date,{...saved.matrix,...saved.transitMatrix},data.claimed||{});
+    let settings;try{settings=botSettings(context,Date.now(),data.date);}catch(error){throw fail(error.message,409);}
+    const {p,date,saved,tasks}=settings,task=chooseBotTask(tasks,p,date,{...saved.matrix,...saved.transitMatrix},data.claimed||{});
     if(!task||task.id!==data.taskId)throw fail('Mission non compatible avec le planning actuel.',409);
     const ledger=JSON.parse(context.state['taskpilot-requests']||'{}');if(['submitted','uncertain','sent'].includes(ledger[task.id]?.state))throw fail('Cette demande existe déjà.',409);
     await this.accounts.botConsume(context.id);
